@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>cpro-util · Centerpiece Pro skin converter</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<canvas id="bg-canvas"></canvas>
+<main>
+  <header>
+    <h1>cpro-util</h1>
+    <p class="subtitle">Drop any image, video, or gif. Get a Centerpiece Pro skin (<span id="spec-label">1920×550</span>).</p>
+  </header>
+
+  <section id="drop" class="drop">
+    <input type="file" id="file" accept="image/*,video/*,.gif" hidden />
+    <div class="drop-inner">
+      <div class="drop-title">Drop a file here</div>
+      <div class="drop-sub">or <button type="button" id="pick">choose file</button></div>
+      <div class="formats">PNG · JPG · WebP · HEIC · MP4 · MOV · GIF · WebM · …</div>
+    </div>
+  </section>
+
+  <details class="url-details" id="url-details">
+    <summary class="url-summary">
+      <span class="url-summary-title">YouTube / Vimeo / direct URL</span>
+      <span class="url-summary-badge">Requires yt-dlp</span>
+    </summary>
+    <div class="url-disclaimer">
+      <strong>⚠ External dependency required</strong>
+      URL downloads use <code>yt-dlp</code>, which must be installed on your machine separately.
+      Install it with <code>brew install yt-dlp</code> (macOS/Homebrew) or <code>pip install yt-dlp</code>,
+      then restart the server.
+    </div>
+    <section class="url">
+      <label for="url">Paste a YouTube / Vimeo / direct video URL</label>
+      <div class="url-row">
+        <input type="url" id="url" placeholder="https://www.youtube.com/watch?v=…" />
+        <button type="button" id="urlClear" title="Clear">✕</button>
+      </div>
+    </section>
+  </details>
+
+  <section id="preview-compare" class="preview-compare" hidden>
+    <h2>Preview</h2>
+    <div class="compare-grid">
+      <div class="compare-item">
+        <div class="compare-label">Cover <small>crop to fill</small></div>
+        <div class="compare-stage" id="prev-cover"></div>
+      </div>
+      <div class="compare-item">
+        <div class="compare-label">Contain <small>letterbox</small></div>
+        <div class="compare-stage" id="prev-contain"></div>
+      </div>
+      <div class="compare-item">
+        <div class="compare-label">Stretch <small>distort</small></div>
+        <div class="compare-stage" id="prev-stretch"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="options">
+    <fieldset>
+      <legend>Fit</legend>
+      <label><input type="radio" name="fit" value="cover" checked /> Cover <small>crop to fill</small></label>
+      <label><input type="radio" name="fit" value="contain" /> Contain <small>letterbox</small></label>
+      <label><input type="radio" name="fit" value="stretch" /> Stretch <small>distort</small></label>
+    </fieldset>
+    <fieldset class="row">
+      <label>Background <input type="color" id="bg" value="#000000" /></label>
+      <label>Crop X <input type="range" id="cropX" min="0" max="1" step="0.05" value="0.5" /><span id="cropXv">0.50</span></label>
+      <label>Crop Y <input type="range" id="cropY" min="0" max="1" step="0.05" value="0.5" /><span id="cropYv">0.50</span></label>
+    </fieldset>
+    <fieldset class="row">
+      <label>FPS <input type="number" id="fps" min="30" max="60" value="60" /></label>
+      <label>Bitrate (Mbps) <input type="number" id="bitrate" min="5" max="10" step="1" value="8" /></label>
+    </fieldset>
+    <fieldset class="row">
+      <legend>Trim (video only)</legend>
+      <label>Start <input type="text" id="start" placeholder="0 or 1:30" inputmode="decimal" /></label>
+      <label>Duration <input type="text" id="duration" placeholder="e.g. 15 or 0:30" inputmode="decimal" /></label>
+      <small>Seconds, or H:M:S / M:S. Leave blank for the whole video.</small>
+    </fieldset>
+  </section>
+
+  <section class="actions">
+    <button id="convert" disabled>Convert</button>
+    <span id="status" class="status"></span>
+  </section>
+
+  <section id="progress-section" class="progress-section" hidden>
+    <div class="progress-phase" id="progress-phase">Downloading…</div>
+    <div class="progress-track">
+      <div class="progress-bar" id="progress-bar"></div>
+    </div>
+    <div class="progress-detail" id="progress-detail"></div>
+  </section>
+
+  <section id="result" class="result" hidden>
+    <h2>Result</h2>
+    <div class="meta" id="meta"></div>
+    <div class="stage-wrap">
+      <div class="stage" id="stage"></div>
+    </div>
+    <div class="actions">
+      <a id="download" class="btn" download>Download</a>
+      <button id="again">Convert another</button>
+    </div>
+  </section>
+
+  <footer>
+    <p>Centerpiece Pro skin spec: 1920×550 · H.264 Main@L4.2 · 30-60fps · 5-10Mbps · no audio · or PNG. Upload finished skins via <a href="https://xpanel.finalmouse.com" target="_blank" rel="noopener">xpanel.finalmouse.com</a>.</p>
+  </footer>
+</main>
+<script src="/bg.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

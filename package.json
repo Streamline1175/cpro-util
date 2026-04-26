@@ -1,0 +1,42 @@
+{
+  "name": "cpro-util",
+  "version": "0.1.0",
+  "description": "Media conversion toolbox for Finalmouse Centerpiece Pro skins (1920x550 H.264 Main@L4.2 / PNG)",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "cpro": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "src/web",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "setup": "bash setup.sh",
+    "build": "tsc && node scripts/copy-assets.mjs",
+    "dev": "tsx src/cli.ts",
+    "serve": "tsx src/cli.ts serve",
+    "start": "node dist/cli.js serve"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@fastify/multipart": "^9.0.3",
+    "@fastify/static": "^9.1.1",
+    "commander": "^14.0.0",
+    "fastify": "^5.6.1",
+    "ffmpeg-static": "^5.2.0",
+    "ffprobe-static": "^3.1.0",
+    "open": "^10.2.0",
+    "sharp": "^0.34.4"
+  },
+  "devDependencies": {
+    "@types/ffprobe-static": "^2.0.3",
+    "@types/node": "^22.15.3",
+    "tsx": "^4.20.7",
+    "typescript": "^5.9.3"
+  }
+}
