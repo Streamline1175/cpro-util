@@ -1,8 +1,9 @@
 import { spawn } from "node:child_process";
 import { mkdir, readdir, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
+import { FFMPEG } from "./ffmpeg-bin.js";
 
 export interface FetchProgress {
   percent: number;
@@ -45,6 +46,7 @@ export async function fetchVideoFromUrl(
     "--no-progress",
     "--newline",
     "--restrict-filenames",
+    "--ffmpeg-location", dirname(FFMPEG),
     "-f", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b",
     "--merge-output-format", "mp4",
     "-o", outTemplate,

@@ -44,21 +44,15 @@
   </details>
 
   <section id="preview-compare" class="preview-compare" hidden>
-    <h2>Preview</h2>
-    <div class="compare-grid">
-      <div class="compare-item">
-        <div class="compare-label">Cover <small>crop to fill</small></div>
-        <div class="compare-stage" id="prev-cover"></div>
-      </div>
-      <div class="compare-item">
-        <div class="compare-label">Contain <small>letterbox</small></div>
-        <div class="compare-stage" id="prev-contain"></div>
-      </div>
-      <div class="compare-item">
-        <div class="compare-label">Stretch <small>distort</small></div>
-        <div class="compare-stage" id="prev-stretch"></div>
+    <div class="section-header">
+      <h2>Preview</h2>
+      <div class="kbd-toggles">
+        <span class="kbd-toggle-label">Overlay:</span>
+        <button type="button" class="btn-kbd-toggle" id="compare-keys-btn">Keys</button>
+        <button type="button" class="btn-kbd-toggle" id="compare-legends-btn">Legends</button>
       </div>
     </div>
+    <div class="compare-stage" id="preview-stage"></div>
   </section>
 
   <section class="options">
@@ -99,7 +93,14 @@
   </section>
 
   <section id="result" class="result" hidden>
-    <h2>Result</h2>
+    <div class="section-header">
+      <h2>Result</h2>
+      <div class="kbd-toggles">
+        <span class="kbd-toggle-label">Overlay:</span>
+        <button type="button" class="btn-kbd-toggle" id="result-keys-btn">Keys</button>
+        <button type="button" class="btn-kbd-toggle" id="result-legends-btn">Legends</button>
+      </div>
+    </div>
     <div class="meta" id="meta"></div>
     <div class="stage-wrap">
       <div class="stage" id="stage"></div>
@@ -114,6 +115,7 @@
     <p>Centerpiece Pro skin spec: 1920×550 · H.264 Main@L4.2 · 30-60fps · 5-10Mbps · no audio · or PNG. Upload finished skins via <a href="https://xpanel.finalmouse.com" target="_blank" rel="noopener">xpanel.finalmouse.com</a>.</p>
   </footer>
 </main>
+<script src="/kbd.js"></script>
 <script src="/bg.js"></script>
 <script src="/app.js"></script>
 </body>

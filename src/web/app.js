@@ -24,23 +24,54 @@
   let currentFile = null;
   let previewObjectUrl = null;
 
-  const updatePreviewCompare = (file) => {
+  const fitCssMap = { cover: "cover", contain: "contain", stretch: "fill" };
+
+  const refreshPreview = () => {
+    const stage = document.getElementById("preview-stage");
+    const el = stage && stage.querySelector("img, video");
+    if (!el) return;
+    const fit = document.querySelector('input[name="fit"]:checked')?.value || "cover";
+    el.style.objectFit = fitCssMap[fit] || "cover";
+    el.style.objectPosition = `${(cropX.value * 100).toFixed(1)}% ${(cropY.value * 100).toFixed(1)}%`;
+  };
+
+  const updatePreview = (file) => {
     const section = document.getElementById("preview-compare");
+    const stage = document.getElementById("preview-stage");
     if (!file) { section.hidden = true; return; }
     if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl);
     previewObjectUrl = URL.createObjectURL(file);
     const isVideo = file.type.startsWith("video/");
-    [["cover", "cover"], ["contain", "contain"], ["stretch", "fill"]].forEach(([id, fit]) => {
-      const stage = document.getElementById(`prev-${id}`);
-      stage.innerHTML = "";
-      const el = document.createElement(isVideo ? "video" : "img");
-      el.src = previewObjectUrl;
-      if (isVideo) { el.autoplay = true; el.muted = true; el.loop = true; el.playsInline = true; }
-      el.style.objectFit = fit;
-      stage.appendChild(el);
-    });
+    stage.innerHTML = "";
+    const el = document.createElement(isVideo ? "video" : "img");
+    el.src = previewObjectUrl;
+    if (isVideo) { el.autoplay = true; el.muted = true; el.loop = true; el.playsInline = true; }
+    stage.appendChild(el);
+    stage.appendChild(window.KBD.createOverlay());
     section.hidden = false;
+    refreshPreview();
   };
+
+  // ── Keyboard overlay toggles ──────────────────────────────────────────────
+  const compareSection = document.getElementById("preview-compare");
+  const resultSection  = document.getElementById("result");
+
+  document.getElementById("compare-keys-btn").addEventListener("click", function () {
+    const on = this.classList.toggle("active");
+    compareSection.classList.toggle("kbd-show-keys", on);
+  });
+  document.getElementById("compare-legends-btn").addEventListener("click", function () {
+    const on = this.classList.toggle("active");
+    compareSection.classList.toggle("kbd-show-legends", on);
+  });
+  document.getElementById("result-keys-btn").addEventListener("click", function () {
+    const on = this.classList.toggle("active");
+    resultSection.classList.toggle("kbd-show-keys", on);
+  });
+  document.getElementById("result-legends-btn").addEventListener("click", function () {
+    const on = this.classList.toggle("active");
+    resultSection.classList.toggle("kbd-show-legends", on);
+  });
 
   const setProgress = (phase, pct, detail = "") => {
     progressSection.hidden = false;
@@ -68,7 +99,7 @@
     if (f) urlInput.value = "";
     refreshConvertEnabled();
     setStatus(f ? `Ready: ${f.name} (${formatBytes(f.size)})` : "");
-    updatePreviewCompare(f);
+    updatePreview(f);
   };
 
   urlInput.addEventListener("input", () => {
@@ -107,8 +138,33 @@
     if (f) setFile(f);
   });
 
-  cropX.addEventListener("input", () => (cropXv.textContent = Number(cropX.value).toFixed(2)));
-  cropY.addEventListener("input", () => (cropYv.textContent = Number(cropY.value).toFixed(2)));
+  cropX.addEventListener("input", () => { cropXv.textContent = Number(cropX.value).toFixed(2); refreshPreview(); });
+  cropY.addEventListener("input", () => { cropYv.textContent = Number(cropY.value).toFixed(2); refreshPreview(); });
+  document.querySelectorAll('input[name="fit"]').forEach(r => r.addEventListener("change", refreshPreview));
+
+  const parseTimeSec = (val) => {
+    const s = String(val).trim();
+    if (!s) return 0;
+    const parts = s.split(":");
+    let secs = 0;
+    for (const part of parts) {
+      const n = Number(part);
+      if (!Number.isFinite(n) || n < 0) return 0;
+      secs = secs * 60 + n;
+    }
+    return secs;
+  };
+
+  const seekPreviewToStart = () => {
+    const stage = document.getElementById("preview-stage");
+    const vid = stage && stage.querySelector("video");
+    if (!vid) return;
+    const t = parseTimeSec(document.getElementById("start").value);
+    if (t >= 0) vid.currentTime = t;
+  };
+
+  document.getElementById("start").addEventListener("change", seekPreviewToStart);
+  document.getElementById("start").addEventListener("blur", seekPreviewToStart);
 
   convertBtn.addEventListener("click", async () => {
     const url = urlInput.value.trim();
@@ -166,7 +222,8 @@
         if (!res.ok || !json.ok) throw new Error(json.error || `HTTP ${res.status}`);
       }
       renderResult(json);
-      setStatus("✓ Done", "ok");
+      setStatus("✓ Done — tweak settings and Convert again, or download below.", "ok");
+      convertBtn.disabled = false;
     } catch (err) {
       setStatus("✗ " + (err.message || err), "err");
       convertBtn.disabled = false;
@@ -180,7 +237,7 @@
     fileInput.value = "";
     urlInput.value = "";
     refreshConvertEnabled();
-    updatePreviewCompare(null);
+    updatePreview(null);
     hideProgress();
   });
 
@@ -200,6 +257,7 @@
       v.playsInline = true;
       stageEl.appendChild(v);
     }
+    stageEl.appendChild(window.KBD.createOverlay());
     const parts = [
       `${r.width}×${r.height}`,
       formatBytes(r.bytes),
