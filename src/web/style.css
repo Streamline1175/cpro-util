@@ -54,8 +54,12 @@ header .subtitle { margin: 4px 0 0; color: var(--muted); }
 .url-details[open] .url-summary::before { transform: rotate(90deg); }
 .url-summary-title { font-size: 13px; font-weight: 500; flex: 1; }
 .url-summary-badge { font-size: 11px; background: #2d1f00; color: #f59e0b; border: 1px solid #78450a; border-radius: 4px; padding: 2px 7px; font-family: ui-monospace, monospace; }
+.url-summary-badge.installed { background: #052e16; color: #4ade80; border-color: #166534; }
 .url-disclaimer { margin: 0 14px; padding: 10px 12px; background: #1a1400; border: 1px solid #78450a; border-radius: 7px; font-size: 12px; color: #d4a84b; line-height: 1.6; }
 .url-disclaimer code { background: #2d1f00; padding: 1px 5px; border-radius: 4px; font-family: ui-monospace, monospace; color: #f59e0b; }
+.url-installed { display: flex; align-items: center; gap: 7px; margin: 0 14px; padding: 9px 12px; background: #052e16; border: 1px solid #166534; border-radius: 7px; font-size: 12px; color: #4ade80; line-height: 1.6; }
+.url-installed-icon { width: 15px; height: 15px; flex-shrink: 0; }
+.url-installed-version { color: #86efac; font-family: ui-monospace, monospace; margin-left: 2px; }
 
 .url { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; }
 .url label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
@@ -104,6 +108,41 @@ button.secondary, .btn.secondary { background: var(--panel-2); color: var(--text
 
 footer { color: var(--muted); font-size: 12px; border-top: 1px solid var(--border); padding-top: 16px; }
 footer a { color: var(--accent); }
+
+/* ── Cached files ─────────────────────────────────────────────────────────── */
+.cached-files { display: flex; flex-direction: column; gap: 10px; }
+.cached-files-header {
+  display: flex; align-items: center; justify-content: space-between;
+}
+.cached-files-header h2 { margin: 0; font-size: 16px; font-weight: 600; }
+.btn-danger {
+  background: transparent; color: var(--err); border: 1px solid var(--err);
+  padding: 5px 12px; border-radius: 7px; font: inherit; font-size: 12px;
+  cursor: pointer; transition: background 0.15s, color 0.15s;
+}
+.btn-danger:hover { background: rgba(248, 113, 113, 0.12); }
+.cached-files-list { display: flex; flex-direction: column; gap: 6px; }
+.cached-file-row {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  padding: 9px 12px; font-size: 13px;
+}
+.cached-file-kind {
+  font-size: 10px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase;
+  padding: 2px 6px; border-radius: 4px; flex-shrink: 0;
+  font-family: ui-monospace, monospace;
+}
+.cached-file-kind.video { background: rgba(106, 166, 255, 0.12); color: var(--accent); border: 1px solid rgba(106, 166, 255, 0.25); }
+.cached-file-kind.image { background: rgba(74, 222, 128, 0.1); color: var(--ok); border: 1px solid rgba(74, 222, 128, 0.25); }
+.cached-file-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cached-file-meta { color: var(--muted); font-family: ui-monospace, monospace; font-size: 11px; white-space: nowrap; flex-shrink: 0; }
+.cached-file-age { color: var(--muted); font-size: 11px; white-space: nowrap; flex-shrink: 0; }
+.cached-file-del {
+  background: transparent; color: var(--muted); border: 1px solid transparent;
+  padding: 3px 8px; border-radius: 5px; font: inherit; font-size: 11px;
+  cursor: pointer; flex-shrink: 0; transition: color 0.15s, border-color 0.15s;
+}
+.cached-file-del:hover { color: var(--err); border-color: var(--err); }
 
 .progress-section { display: flex; flex-direction: column; gap: 6px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
 .progress-phase { font-size: 13px; font-weight: 500; }
@@ -177,3 +216,52 @@ footer a { color: var(--accent); }
   color: var(--accent);
   border-color: var(--accent);
 }
+
+/* ── Tooltip (?)-style help icons ─────────────────────────────────────────── */
+.tip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: default;
+  flex-shrink: 0;
+  position: relative;
+}
+.tip::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 7px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1e1e26;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text);
+  white-space: pre-wrap;
+  width: 220px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 100;
+  line-height: 1.5;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.tip:hover::after { opacity: 1; }
+
+/* dim controls that don't apply.
+   Opacity is placed on .dim-content (not the label) so the label itself
+   doesn't create a stacking context — that would trap the tooltip z-index. */
+.option-dimmed .dim-content { opacity: 0.35; pointer-events: none; }

@@ -18,6 +18,12 @@ import {
 } from "./lib/bundle.js";
 import { startServer } from "./server.js";
 import { initProject as ueInitProject, exportSkin as ueExportSkin } from "./lib/ue.js";
+import {
+  initInteractiveProject as uePakInit,
+  cookPak,
+  uploadPak,
+  resolveUe427Root,
+} from "./lib/ue-pak.js";
 import { isUrl, fetchVideoFromUrl } from "./lib/fetch-url.js";
 
 const program = new Command();
@@ -274,6 +280,137 @@ ue
       },
     });
     console.log(`✓ Skin written to ${outPath}`);
+  });
+
+// ---------------------------------------------------------------------------
+// ue pak — interactive skin workflow (UE 4.27.2 + Android SDK → .pak upload)
+// ---------------------------------------------------------------------------
+const uePak = ue
+  .command("pak")
+  .description(
+    "Interactive skin workflow: UE 4.27.2 + Android SDK → .pak → keyboard upload",
+  );
+
+uePak
+  .command("init")
+  .description(
+    "Scaffold a UE 4.27.2 interactive skin project (dummy CpSkinAPI plugin + Python setup)",
+  )
+  .argument("<dir>", "target directory for the new project")
+  .action(async (dir: string) => {
+    const target = await uePakInit({ targetDir: dir });
+    const abs = resolve(target);
+    console.log(`✓ Interactive skin project created at ${abs}`);
+    console.log();
+    console.log("  Next steps:");
+    console.log("  1. Install Android Studio SDK components (see ue-interactive-template/README.md)");
+    console.log("  2. Build UE 4.27.2 from source with VS 2019 (set UE427_ROOT env var)");
+    console.log(`  3. Right-click ${abs}/CpInteractiveSkin.uproject`);
+    console.log("     → Switch Unreal Engine Version → select source build");
+    console.log("  4. Open the .sln in VS 2019 → Build CpInteractiveSkin (compiles dummy plugin)");
+    console.log("  5. Open .uproject → run Python/setup_interactive.py from the editor console");
+    console.log("  6. Author your skin → then: cpro ue pak cook " + abs);
+  });
+
+uePak
+  .command("cook")
+  .description(
+    "Cook a UE 4.27.2 interactive skin project to a .pak file via RunUAT (Android ASTC)",
+  )
+  .argument("<project>", "path to a UE 4.27.2 interactive skin project directory")
+  .option("-o, --out <file>", "output .pak path", "dist/skin.pak")
+  .option(
+    "--ue-path <root>",
+    "UE 4.27.2 source-build root (or set UE427_ROOT env var)",
+  )
+  .action(async (projectDir: string, opts) => {
+    if (!existsSync(projectDir)) exitError(`Project not found: ${projectDir}`);
+
+    // Validate UE root early for a clear error message
+    let ueRoot: string;
+    try {
+      ueRoot = resolveUe427Root(opts.uePath);
+    } catch (e: any) {
+      exitError(e.message);
+    }
+
+    const outPath = resolve(opts.out as string);
+    console.log(`→ Cooking interactive skin (Android ASTC)`);
+    console.log(`  Project : ${resolve(projectDir)}`);
+    console.log(`  UE root : ${ueRoot!}`);
+    console.log(`  Output  : ${outPath}`);
+    console.log("  (This may take several minutes on first cook — shaders must compile)");
+
+    const result = await cookPak({
+      projectDir,
+      outPath,
+      ue427Path: opts.uePath,
+      onLog: (line) => {
+        if (/error|warning|cook|pak|LogInit|LogAndroid/i.test(line)) {
+          console.log(`  ${line}`);
+        }
+      },
+    });
+
+    console.log(`✓ PAK ready: ${result.pakPath} (${formatBytes(result.bytes)})`);
+    console.log(`  Upload:  cpro ue pak upload "${result.pakPath}" --slot 0`);
+  });
+
+uePak
+  .command("upload")
+  .description(
+    "Upload a cooked .pak to a Centerpiece keyboard slot over the local network",
+  )
+  .argument("<pak>", "path to the cooked .pak file")
+  .requiredOption("-s, --slot <n>", "keyboard slot (0–4)", "0")
+  .option(
+    "--host <ip>",
+    "keyboard IP or hostname (auto-discovers via mDNS if omitted)",
+  )
+  .option("--port <n>", "keyboard HTTP port", "8080")
+  .action(async (pakPath: string, opts) => {
+    const abs = resolve(pakPath);
+    if (!existsSync(abs)) exitError(`PAK not found: ${abs}`);
+
+    const slot = Math.max(0, Math.min(4, Number(opts.slot)));
+    const port = Number(opts.port);
+
+    console.log(`→ Uploading ${abs} → slot ${slot}`);
+    if (opts.host) {
+      console.log(`  Host: ${opts.host}:${port}`);
+    } else {
+      console.log("  Auto-discovering keyboard via mDNS…");
+    }
+
+    await uploadPak({
+      pakPath: abs,
+      slot,
+      host: opts.host,
+      port,
+      onProgress: renderProgress,
+    });
+    process.stdout.write("\n");
+    console.log(`✓ Skin uploaded to slot ${slot} — select it on your keyboard to activate`);
+  });
+
+uePak
+  .command("preview")
+  .description("Open the interactive keyboard skin preview in a browser (1920×550 canvas with clickable keys + particle FX)")
+  .option("-p, --port <n>", "port for the preview server", "7779")
+  .option("--no-open", "do not auto-open the browser")
+  .action(async (opts) => {
+    const port = Number(opts.port);
+    await startServer({ port, openBrowser: false });
+    const url = `http://127.0.0.1:${port}/interactive.html`;
+    console.log(`✓ Interactive preview at ${url}`);
+    console.log("  • Click any key to see particle effects");
+    console.log("  • Press keyboard keys (mapped to Centerpiece indices)");
+    console.log("  • Upload a background image or video");
+    console.log("  Ctrl+C to stop");
+    if (opts.open !== false) {
+      const { default: open } = await import("open");
+      await open(url);
+    }
   });
 
 program

@@ -24,11 +24,36 @@
   let currentFile = null;
   let previewObjectUrl = null;
 
+  // ── yt-dlp availability check ─────────────────────────────────────────────
+  fetch("/api/ytdlp-check")
+    .then(r => r.json())
+    .then(data => {
+      if (data.installed) {
+        const badge = document.getElementById("ytdlp-badge");
+        const disclaimer = document.getElementById("ytdlp-disclaimer");
+        const installed = document.getElementById("ytdlp-installed");
+        const version = document.getElementById("ytdlp-version");
+        if (badge) badge.classList.add("installed");
+        if (badge) badge.textContent = "yt-dlp installed";
+        if (disclaimer) disclaimer.hidden = true;
+        if (installed) installed.hidden = false;
+        if (version && data.version) version.textContent = `v${data.version}`;
+      }
+    })
+    .catch(() => { /* silently ignore — server may not expose endpoint */ });
+
   const fitCssMap = { cover: "cover", contain: "contain", stretch: "fill" };
+
+  const refreshDimming = () => {
+    const fit = document.querySelector('input[name="fit"]:checked')?.value || "cover";
+    const bgLabel = document.getElementById("bg-label");
+    if (bgLabel) bgLabel.classList.toggle("option-dimmed", fit !== "contain");
+  };
 
   const refreshPreview = () => {
     const stage = document.getElementById("preview-stage");
     const el = stage && stage.querySelector("img, video");
+    refreshDimming();
     if (!el) return;
     const fit = document.querySelector('input[name="fit"]:checked')?.value || "cover";
     el.style.objectFit = fitCssMap[fit] || "cover";
@@ -141,6 +166,7 @@
   cropX.addEventListener("input", () => { cropXv.textContent = Number(cropX.value).toFixed(2); refreshPreview(); });
   cropY.addEventListener("input", () => { cropYv.textContent = Number(cropY.value).toFixed(2); refreshPreview(); });
   document.querySelectorAll('input[name="fit"]').forEach(r => r.addEventListener("change", refreshPreview));
+  refreshDimming(); // set initial dimmed state on load
 
   const parseTimeSec = (val) => {
     const s = String(val).trim();
@@ -224,6 +250,7 @@
       renderResult(json);
       setStatus("✓ Done — tweak settings and Convert again, or download below.", "ok");
       convertBtn.disabled = false;
+      loadCachedFiles();
     } catch (err) {
       setStatus("✗ " + (err.message || err), "err");
       convertBtn.disabled = false;
@@ -283,4 +310,86 @@
     if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
     return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
   };
+
+  // ── Cached files ──────────────────────────────────────────────────────────
+  const cachedSection = document.getElementById("cached-files");
+  const cachedList = document.getElementById("cached-files-list");
+  const deleteAllBtn = document.getElementById("delete-all-btn");
+
+  const formatAge = (isoDate) => {
+    const diffMs = Date.now() - new Date(isoDate).getTime();
+    const s = Math.floor(diffMs / 1000);
+    if (s < 60) return `${s}s old`;
+    const m = Math.floor(s / 60);
+    if (m < 60) return `${m} min${m !== 1 ? "s" : ""} old`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h} hr${h !== 1 ? "s" : ""} old`;
+    const d = Math.floor(h / 24);
+    if (d < 7) return `${d} day${d !== 1 ? "s" : ""} old`;
+    const w = Math.floor(d / 7);
+    return `${w} week${w !== 1 ? "s" : ""} old`;
+  };
+
+  const loadCachedFiles = async () => {
+    try {
+      const files = await fetch("/api/files").then(r => r.json());
+      cachedSection.hidden = files.length === 0;
+      cachedList.innerHTML = "";
+      for (const f of files) {
+        const row = document.createElement("div");
+        row.className = "cached-file-row";
+        row.dataset.id = f.id;
+
+        const kind = document.createElement("span");
+        kind.className = `cached-file-kind ${f.kind}`;
+        kind.textContent = f.kind === "video" ? "VIDEO" : "IMAGE";
+
+        const name = document.createElement("span");
+        name.className = "cached-file-name";
+        name.title = f.filename;
+        name.textContent = f.filename;
+
+        const meta = document.createElement("span");
+        meta.className = "cached-file-meta";
+        meta.textContent = formatBytes(f.bytes);
+
+        const age = document.createElement("span");
+        age.className = "cached-file-age";
+        age.textContent = formatAge(f.createdAt);
+
+        const del = document.createElement("button");
+        del.className = "cached-file-del";
+        del.textContent = "Delete";
+        del.addEventListener("click", () => deleteFile(f.id, row));
+
+        row.append(kind, name, meta, age, del);
+        cachedList.appendChild(row);
+      }
+    } catch { /* ignore */ }
+  };
+
+  const deleteFile = async (id, rowEl) => {
+    rowEl.style.opacity = "0.4";
+    rowEl.style.pointerEvents = "none";
+    try {
+      await fetch(`/api/files/${encodeURIComponent(id)}`, { method: "DELETE" });
+      await loadCachedFiles();
+    } catch {
+      rowEl.style.opacity = "";
+      rowEl.style.pointerEvents = "";
+    }
+  };
+
+  deleteAllBtn.addEventListener("click", async () => {
+    if (!confirm("Delete all cached input and output files?")) return;
+    deleteAllBtn.disabled = true;
+    try {
+      await fetch("/api/files", { method: "DELETE" });
+      await loadCachedFiles();
+    } finally {
+      deleteAllBtn.disabled = false;
+    }
+  });
+
+  loadCachedFiles();
 })();

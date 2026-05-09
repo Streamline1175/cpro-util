@@ -1,53 +1,102 @@
-// Finalmouse Centerpiece keyboard overlay — 65% exploded layout (67 keys)
-// Coordinate system: 1920×550 viewBox units, 1U = 102px, 0.5U gap between main and nav column
+// Finalmouse Centerpiece keyboard overlay — exact geometry mirrored from interactive.html
+// Single source of truth: U=103, KH=88, MARGIN=14, NAV_C=[1654,1761,1868]
 (() => {
-  const U = 102;  // viewBox units per key-unit
-  const G = 6;    // inter-key gap in viewBox units
-  const L = Math.round((1920 - 16.5 * U) / 2); // left margin = 119
-  const T = Math.round((550  -  5   * U) / 2); // top  margin =  20
+  const U      = 103;  // key unit width (px in 1920×550 space)
+  const KH     =  88;  // key height
+  const GAP    =   4;  // inter-key gap
+  const MARGIN =  14;  // left margin
 
-  // [x, y, w, label] — x/y/w in key-units (U). Empty label = no text (Space bar).
-  const KEYS = [
-    // ── Row 1 — number row ──────────────────────────────────────────────────
-    [0,     0, 1,    'Esc'],
-    [1,     0, 1,    '1'],  [2,  0, 1, '2'], [3,  0, 1, '3'], [4,  0, 1, '4'],
-    [5,     0, 1,    '5'],  [6,  0, 1, '6'], [7,  0, 1, '7'], [8,  0, 1, '8'],
-    [9,     0, 1,    '9'],  [10, 0, 1, '0'], [11, 0, 1, '-'], [12, 0, 1, '='],
-    [13,    0, 2,    'Bksp'],
-    [15.5,  0, 1,    'Del'],
-    // ── Row 2 — QWERTY ──────────────────────────────────────────────────────
-    [0,     1, 1.5,  'Tab'],
-    [1.5,   1, 1,    'Q'],  [2.5,  1, 1, 'W'], [3.5,  1, 1, 'E'], [4.5,  1, 1, 'R'],
-    [5.5,   1, 1,    'T'],  [6.5,  1, 1, 'Y'], [7.5,  1, 1, 'U'], [8.5,  1, 1, 'I'],
-    [9.5,   1, 1,    'O'],  [10.5, 1, 1, 'P'], [11.5, 1, 1, '['], [12.5, 1, 1, ']'],
-    [13.5,  1, 1.5,  '\\'],
-    [15.5,  1, 1,    'PgUp'],
-    // ── Row 3 — home row ────────────────────────────────────────────────────
-    [0,     2, 1.75, 'Caps'],
-    [1.75,  2, 1,    'A'],  [2.75,  2, 1, 'S'], [3.75,  2, 1, 'D'], [4.75,  2, 1, 'F'],
-    [5.75,  2, 1,    'G'],  [6.75,  2, 1, 'H'], [7.75,  2, 1, 'J'], [8.75,  2, 1, 'K'],
-    [9.75,  2, 1,    'L'],  [10.75, 2, 1, ';'], [11.75, 2, 1, "'"],
-    [12.75, 2, 2.25, 'Enter'],
-    [15.5,  2, 1,    'PgDn'],
-    // ── Row 4 — shift row ───────────────────────────────────────────────────
-    [0,     3, 2.25, 'Shift'],
-    [2.25,  3, 1,    'Z'],  [3.25,  3, 1, 'X'], [4.25, 3, 1, 'C'], [5.25, 3, 1, 'V'],
-    [6.25,  3, 1,    'B'],  [7.25,  3, 1, 'N'], [8.25, 3, 1, 'M'], [9.25, 3, 1, ','],
-    [10.25, 3, 1,    '.'],  [11.25, 3, 1, '/'],
-    [12.25, 3, 1.75, 'Shift'],
-    [15.5,  3, 1,    '\u2191'], // ↑
-    // ── Row 5 — bottom row ──────────────────────────────────────────────────
-    [0,     4, 1.25, 'Ctrl'],
-    [1.25,  4, 1.25, 'Win'],
-    [2.5,   4, 1.25, 'Alt'],
-    [3.75,  4, 6.25, ''],        // Space bar — no label
-    [10,    4, 1,    'Alt'],
-    [11,    4, 1,    'Fn'],
-    [12,    4, 1,    'Ctrl'],
-    [13.5,  4, 1,    '\u2190'], // ←
-    [14.5,  4, 1,    '\u2193'], // ↓
-    [15.5,  4, 1,    '\u2192'], // →
+  // Row Y-centres
+  const Y = [75, 175, 275, 375, 475];
+
+  // Nav cluster column x-centres: [left, middle, right]
+  const NAV_C = [1654, 1761, 1868];
+
+  function key(label, cx, cy, w) {
+    return { label, cx, cy, x: cx - w / 2, y: cy - KH / 2, w, h: KH };
+  }
+
+  // Build a row of keys with given widths, starting from MARGIN
+  function buildRow(yRow, labels, widths) {
+    let cx = MARGIN;
+    return labels.map((lbl, i) => {
+      const w = Array.isArray(widths) ? widths[i] : widths;
+      cx += w / 2;
+      const k = key(lbl, cx, yRow, w);
+      cx += w / 2 + GAP;
+      return k;
+    });
+  }
+
+  // ── Row 0: Esc 1-0 - = Bksp ────────────────────────────────────────────
+  const R0 = buildRow(Y[0],
+    ['Esc','1','2','3','4','5','6','7','8','9','0','-','=','⌫'],
+    [U*1.1,U,U,U,U,U,U,U,U,U,U,U,U,U*2]
+  );
+
+  // ── Row 1: Tab Q-P [ ] \ ────────────────────────────────────────────────
+  const R1 = buildRow(Y[1],
+    ['Tab','Q','W','E','R','T','Y','U','I','O','P','[',']','\\'],
+    [U*1.5,U,U,U,U,U,U,U,U,U,U,U,U,U*1.5]
+  );
+
+  // ── Row 2: Caps A-L ; ' Enter ───────────────────────────────────────────
+  const R2 = buildRow(Y[2],
+    ['Caps','A','S','D','F','G','H','J','K','L',';',"'",'↵'],
+    [U*1.75,U,U,U,U,U,U,U,U,U,U,U,U*2.25]
+  );
+
+  // ── Row 3: LShift Z-/ RShift ────────────────────────────────────────────
+  const R3 = buildRow(Y[3],
+    ['⇧','Z','X','C','V','B','N','M',',','.','/', '⇧'],
+    [U*2.25,U,U,U,U,U,U,U,U,U,U,U*1.75]
+  );
+
+  // ── Row 4: Modifiers + Space (Space unindexed / visual only) ────────────
+  const R4 = [];
+  (function () {
+    const u4 = 101;
+    let cx = MARGIN;
+    const specs = [
+      ['Ctrl', u4 * 1.25],
+      ['⊞',   u4 * 1.25],
+      ['Alt',  u4 * 1.5 ],
+      // i=3: skip over 6.25U spacebar
+      ['Alt',  u4 * 1.5 ],
+      ['Fn',   u4 * 1.25],
+      ['Ctrl', u4 * 1.25],
+    ];
+    specs.forEach(([lbl, w], i) => {
+      if (i === 3) cx += u4 * 6.25 + GAP;
+      cx += w / 2;
+      R4.push(key(lbl, cx, Y[4], w));
+      cx += w / 2 + GAP;
+    });
+  })();
+
+  // Spacebar — visual indicator only (unindexed)
+  const lalt = R4[2], ralt = R4[3];
+  const spaceX = lalt.x + lalt.w + GAP;
+  const spaceW = ralt.x - spaceX - GAP;
+  const SPACE = [key('', spaceX + spaceW / 2, Y[4], spaceW)];
+
+  // ── Nav cluster ─────────────────────────────────────────────────────────
+  //   Row 0: Ins (mid), PgUp (right)
+  //   Row 1: Del (mid), PgDn (right)
+  //   Row 3: ↑  (mid)
+  //   Row 4: ← (left), ↓ (mid), → (right)
+  const NAV = [
+    key('Ins',  NAV_C[1], Y[0], U),
+    key('PgUp', NAV_C[2], Y[0], U),
+    key('Del',  NAV_C[1], Y[1], U),
+    key('PgDn', NAV_C[2], Y[1], U),
+    key('↑',    NAV_C[1], Y[3], U),
+    key('←',    NAV_C[0], Y[4], U),
+    key('↓',    NAV_C[1], Y[4], U),
+    key('→',    NAV_C[2], Y[4], U),
   ];
+
+  const ALL_KEYS = [...R0, ...R1, ...R2, ...R3, ...R4, ...SPACE, ...NAV];
 
   function xmlEsc(s) {
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -56,18 +105,18 @@
   function buildSvg() {
     let rects = '';
     let texts = '';
-    for (const [xu, yu, wu, label] of KEYS) {
-      const kx = (L + xu * U + G * 0.5).toFixed(1);
-      const ky = (T + yu * U + G * 0.5).toFixed(1);
-      const kw = (wu * U - G).toFixed(1);
-      const kh = (U - G).toFixed(1);
-      rects += `<rect x="${kx}" y="${ky}" width="${kw}" height="${kh}" rx="8"/>`;
-      if (label) {
-        const cx = (L + xu * U + G * 0.5 + (wu * U - G) * 0.5).toFixed(1);
-        const cy = (T + yu * U + G * 0.5 + (U - G) * 0.5).toFixed(1);
-        const n = label.length;
+    for (const k of ALL_KEYS) {
+      const isSpace = !k.label;
+      const rx = k.x.toFixed(1), ry = k.y.toFixed(1);
+      const rw = k.w.toFixed(1), rh = k.h.toFixed(1);
+      if (isSpace) {
+        // Spacebar: dimmer, no text
+        rects += `<rect class="kbd-space" x="${rx}" y="${ry}" width="${rw}" height="${rh}" rx="8"/>`;
+      } else {
+        rects += `<rect x="${rx}" y="${ry}" width="${rw}" height="${rh}" rx="8"/>`;
+        const n = k.label.length;
         const fs = n === 1 ? 32 : n <= 3 ? 22 : n <= 4 ? 18 : 14;
-        texts += `<text x="${cx}" y="${cy}" font-size="${fs}">${xmlEsc(label)}</text>`;
+        texts += `<text x="${k.cx.toFixed(1)}" y="${k.cy.toFixed(1)}" font-size="${fs}">${xmlEsc(k.label)}</text>`;
       }
     }
     return (

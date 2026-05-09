@@ -12,6 +12,7 @@
   <header>
     <h1>cpro-util</h1>
     <p class="subtitle">Drop any image, video, or gif. Get a Centerpiece Pro skin (<span id="spec-label">1920×550</span>).</p>
+    <a href="/interactive.html" style="margin-top:6px;display:inline-block;font-size:12px;color:var(--accent);text-decoration:none;opacity:0.8" title="Interactive keyboard skin preview with particle effects">⌨ Interactive preview →</a>
   </header>
 
   <section id="drop" class="drop">
@@ -26,13 +27,18 @@
   <details class="url-details" id="url-details">
     <summary class="url-summary">
       <span class="url-summary-title">YouTube / Vimeo / direct URL</span>
-      <span class="url-summary-badge">Requires yt-dlp</span>
+      <span class="url-summary-badge" id="ytdlp-badge">Requires yt-dlp</span>
     </summary>
-    <div class="url-disclaimer">
+    <div class="url-disclaimer" id="ytdlp-disclaimer">
       <strong>⚠ External dependency required</strong>
       URL downloads use <code>yt-dlp</code>, which must be installed on your machine separately.
       Install it with <code>brew install yt-dlp</code> (macOS/Homebrew) or <code>pip install yt-dlp</code>,
       then restart the server.
+    </div>
+    <div class="url-installed" id="ytdlp-installed" hidden>
+      <svg class="url-installed-icon" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="8" cy="8" r="7.25" stroke="currentColor" stroke-width="1.5"/><path d="M4.5 8.5l2.5 2.5 4.5-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>yt-dlp is installed</span>
+      <span class="url-installed-version" id="ytdlp-version"></span>
     </div>
     <section class="url">
       <label for="url">Paste a YouTube / Vimeo / direct video URL</label>
@@ -63,13 +69,13 @@
       <label><input type="radio" name="fit" value="stretch" /> Stretch <small>distort</small></label>
     </fieldset>
     <fieldset class="row">
-      <label>Background <input type="color" id="bg" value="#000000" /></label>
-      <label>Crop X <input type="range" id="cropX" min="0" max="1" step="0.05" value="0.5" /><span id="cropXv">0.50</span></label>
-      <label>Crop Y <input type="range" id="cropY" min="0" max="1" step="0.05" value="0.5" /><span id="cropYv">0.50</span></label>
+      <label id="bg-label"><span class="dim-content">Background <input type="color" id="bg" value="#000000" /></span> <span class="tip" data-tip="Fill color shown behind the image when using Contain (letterbox) fit. Has no visible effect with Cover or Stretch.">?</span></label>
+      <label>Crop X <input type="range" id="cropX" min="0" max="1" step="0.05" value="0.5" /><span id="cropXv">0.50</span> <span class="tip" data-tip="Horizontal crop anchor for Cover fit. 0 = left edge, 0.5 = center, 1 = right edge. Only moves the frame when the source is wider than 1920:550.">?</span></label>
+      <label id="cropY-label">Crop Y <input type="range" id="cropY" min="0" max="1" step="0.05" value="0.5" /><span id="cropYv">0.50</span> <span class="tip" data-tip="Vertical crop anchor for Cover fit. 0 = top, 0.5 = center, 1 = bottom. Only moves the frame when the source is taller than 1920:550 (portrait or near-square content).">?</span></label>
     </fieldset>
     <fieldset class="row">
-      <label>FPS <input type="number" id="fps" min="30" max="60" value="60" /></label>
-      <label>Bitrate (Mbps) <input type="number" id="bitrate" min="5" max="10" step="1" value="8" /></label>
+      <label>FPS <input type="number" id="fps" min="30" max="60" value="60" /> <span class="tip" data-tip="Output frame rate for video files (30–60 fps). Has no effect on images.">?</span></label>
+      <label>Bitrate (Mbps) <input type="number" id="bitrate" min="5" max="10" step="1" value="8" /> <span class="tip" data-tip="Target video bitrate in megabits per second (5–10 Mbps). Higher = better quality & larger file. Has no effect on images.">?</span></label>
     </fieldset>
     <fieldset class="row">
       <legend>Trim (video only)</legend>
@@ -109,6 +115,14 @@
       <a id="download" class="btn" download>Download</a>
       <button id="again">Convert another</button>
     </div>
+  </section>
+
+  <section id="cached-files" class="cached-files" hidden>
+    <div class="cached-files-header">
+      <h2>Cached Files</h2>
+      <button type="button" id="delete-all-btn" class="btn-danger">Delete all</button>
+    </div>
+    <div id="cached-files-list" class="cached-files-list"></div>
   </section>
 
   <footer>

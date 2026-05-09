@@ -1,0 +1,1201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>cpro-util · Interactive Skin Preview</title>
+<style>
+:root {
+  color-scheme: dark;
+  --bg:      #0b0b0d;
+  --panel:   #141418;
+  --panel-2: #1a1a20;
+  --border:  #26262e;
+  --text:    #e7e7ea;
+  --muted:   #8a8a94;
+  --accent:  #6aa6ff;
+  --ok:      #4ade80;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body {
+  margin: 0; padding: 0;
+  background: var(--bg); color: var(--text);
+  font: 14px/1.5 -apple-system, Inter, system-ui, sans-serif;
+  min-height: 100vh;
+}
+
+/* ── Header ───────────────────────────────────────────────────────────── */
+header {
+  position: sticky; top: 0; z-index: 10;
+  display: flex; align-items: center; gap: 16px;
+  padding: 10px 20px;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+}
+header h1 { margin: 0; font-size: 16px; letter-spacing: -0.02em; font-weight: 700; }
+header .sep { color: var(--border); }
+header .page-title { color: var(--muted); font-size: 14px; }
+header nav { margin-left: auto; display: flex; gap: 8px; }
+header nav a {
+  color: var(--muted); text-decoration: none; font-size: 13px;
+  padding: 4px 10px; border-radius: 6px; border: 1px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+header nav a:hover { color: var(--text); border-color: var(--border); }
+
+/* ── Main layout ─────────────────────────────────────────────────────── */
+main { display: flex; flex-direction: column; align-items: center; padding: 24px 20px 48px; gap: 20px; }
+
+/* ── Skin canvas stage ───────────────────────────────────────────────── */
+#stage-wrap {
+  position: relative;
+  width: 100%;
+  max-width: min(1920px, calc(100vw - 40px));
+  background: #000;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  box-shadow: 0 0 0 1px #000, 0 8px 32px rgba(0,0,0,0.6);
+  /* preserve 1920:550 aspect */
+  aspect-ratio: 1920 / 550;
+}
+#stage-wrap canvas {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+}
+/* layering: bg → key overlay → particles */
+#canvas-bg  { z-index: 1; }
+#canvas-keys { z-index: 2; pointer-events: none; }
+#canvas-fx  { z-index: 3; pointer-events: none; }
+/* transparent hit layer on top for mouse events */
+#canvas-hit { z-index: 4; background: transparent; cursor: crosshair; }
+
+/* ── Controls ────────────────────────────────────────────────────────── */
+#controls {
+  width: 100%;
+  max-width: min(1920px, calc(100vw - 40px));
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+}
+.ctrl-group {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 12px;
+}
+.ctrl-group label { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.ctrl-group input[type=file] { display: none; }
+button.ctrl-btn {
+  background: var(--panel-2); border: 1px solid var(--border);
+  color: var(--text); border-radius: 6px; padding: 5px 12px;
+  font: 13px/1 inherit; cursor: pointer; transition: background 0.15s, border-color 0.15s;
+}
+button.ctrl-btn:hover { background: #222228; border-color: var(--accent); }
+button.ctrl-btn.active { background: #1a2640; border-color: var(--accent); color: var(--accent); }
+button.ctrl-btn.recording { background: #2a1010; border-color: #f44; color: #f88; }
+#record-timer { font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted); min-width: 28px; text-align: right; }
+input[type=color] { border: 1px solid var(--border); background: var(--panel-2); border-radius: 4px; width: 28px; height: 26px; padding: 2px; cursor: pointer; }
+input[type=range] { accent-color: var(--accent); width: 80px; }
+select { background: var(--panel-2); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 4px 8px; font: 13px/1 inherit; cursor: pointer; }
+
+/* ── Info bar ────────────────────────────────────────────────────────── */
+#info-bar {
+  width: 100%;
+  max-width: min(1920px, calc(100vw - 40px));
+  display: flex; gap: 16px; align-items: center;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 8px; padding: 10px 14px;
+  font-size: 12px;
+}
+#info-bar .info-label { color: var(--muted); }
+#info-bar .info-val { font-family: ui-monospace, monospace; color: var(--text); }
+#info-bar .info-hint { color: var(--muted); margin-left: auto; }
+.badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: #1a2640; color: var(--accent); border: 1px solid #2a3d6a;
+  border-radius: 4px; padding: 2px 7px; font-size: 11px;
+  font-family: ui-monospace, monospace;
+}
+.badge.active { background: #052e16; color: var(--ok); border-color: #166534; }
+
+/* ── Key index table ─────────────────────────────────────────────────── */
+#key-table-section {
+  width: 100%;
+  max-width: min(1920px, calc(100vw - 40px));
+}
+#key-table-section summary {
+  cursor: pointer; font-size: 13px; color: var(--muted); padding: 4px;
+  user-select: none;
+}
+#key-table-section summary:hover { color: var(--text); }
+#key-table {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 4px; margin-top: 10px;
+}
+.key-cell {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 6px; padding: 5px 8px;
+  font-size: 11px; cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+  display: flex; align-items: center; gap: 6px;
+}
+.key-cell:hover { background: var(--panel-2); border-color: var(--accent); }
+.key-cell.active { border-color: var(--accent); background: #1a2640; }
+.key-idx { font-family: ui-monospace, monospace; color: var(--muted); min-width: 20px; }
+.key-label { color: var(--text); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>cpro-util</h1>
+  <span class="sep">·</span>
+  <span class="page-title">Interactive Skin Preview — Centerpiece Founder's Edition</span>
+  <nav>
+    <a href="/">← Back to converter</a>
+  </nav>
+</header>
+
+<main>
+
+  <!-- Controls -->
+  <div id="controls">
+
+    <div class="ctrl-group">
+      <label>Background</label>
+      <button class="ctrl-btn" id="btn-upload-bg">Upload image / video</button>
+      <input type="file" id="input-bg" accept="image/*,video/*" />
+      <input type="color" id="input-bgcolor" value="#0b0b0d" title="Background colour" />
+    </div>
+
+    <div class="ctrl-group">
+      <label>Overlay</label>
+      <button class="ctrl-btn active" id="btn-show-keys" title="Toggle key outlines">Key outlines</button>
+      <button class="ctrl-btn active" id="btn-show-labels" title="Toggle key labels">Labels</button>
+      <button class="ctrl-btn active" id="btn-show-indices" title="Toggle index numbers">Indices</button>
+    </div>
+
+    <div class="ctrl-group">
+      <label>Overlay opacity</label>
+      <input type="range" id="input-overlay-opacity" min="0" max="1" step="0.05" value="0.5" />
+    </div>
+
+    <div class="ctrl-group">
+      <label>Effect</label>
+      <select id="select-effect">
+        <option value="burst">Burst</option>
+        <option value="fire">Fire</option>
+        <option value="ice">Ice shards</option>
+        <option value="ripple">Ripple</option>
+        <option value="lightning">Lightning</option>
+        <option value="matrix">Matrix</option>
+        <option value="confetti">Confetti</option>
+        <option value="smoke">Smoke</option>
+        <option value="custom">Custom →</option>
+      </select>
+      <input type="color" id="input-effect-color" value="#6aa6ff" hidden />
+    </div>
+
+    <div class="ctrl-group">
+      <label>Particles</label>
+      <input type="range" id="input-particle-count" min="5" max="80" step="5" value="25" />
+      <span id="label-particle-count" style="font-family:ui-monospace,monospace;color:var(--muted);font-size:12px">25</span>
+    </div>
+
+    <div class="ctrl-group" style="margin-left:auto">
+      <label>Static skin export</label>
+      <button class="ctrl-btn" id="btn-record" title="Records a 5-second looping preview and downloads it as a .skin.mp4 static video skin — upload this in XPanel for a looping animation. For a true interactive skin (live keypress effects), build the ue-interactive-template UE 4.27 project instead.">&#x23FA; Record preview skin</button>
+      <span id="record-timer" hidden></span>
+    </div>
+
+  </div>
+
+  <!-- Info bar -->
+  <div id="info-bar">
+    <span class="info-label">Hovered:</span>
+    <span class="info-val" id="info-key">—</span>
+    <span class="info-label" style="margin-left:12px">HID:</span>
+    <span class="info-val" id="info-hid">—</span>
+    <span class="info-label" style="margin-left:12px">Canvas pos:</span>
+    <span class="info-val" id="info-pos">—</span>
+    <span class="badge" id="badge-desktop" style="margin-left:12px" title="Desktop keys mapped to Centerpiece key indices via HID codes">⌨ keys active</span>
+    <span class="info-hint">Click a key or press your keyboard</span>
+  </div>
+
+  <!-- 1920×550 stage -->
+  <div id="stage-wrap">
+    <canvas id="canvas-bg"  width="1920" height="550"></canvas>
+    <canvas id="canvas-keys" width="1920" height="550"></canvas>
+    <canvas id="canvas-fx"  width="1920" height="550"></canvas>
+    <canvas id="canvas-hit" width="1920" height="550"></canvas>
+  </div>
+
+  <!-- Key index reference -->
+  <details id="key-table-section">
+    <summary>Key index reference — all 67 keys, no F-row, spacebar unindexed (click any to trigger effect)</summary>
+    <div id="key-table"></div>
+  </details>
+
+  <!-- Interactive skin deploy guide -->
+  <details id="deploy-guide" style="width:100%;max-width:min(1920px,calc(100vw - 40px))">
+    <summary style="cursor:pointer;font-size:13px;color:var(--muted);padding:4px;user-select:none">
+      How to deploy this as a real interactive skin on your keyboard ▸
+    </summary>
+    <div style="margin-top:14px;display:flex;flex-direction:column;gap:20px;font-size:13px;line-height:1.7">
+
+      <div style="background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:16px 20px">
+        <p style="margin:0 0 8px;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em">What "interactive" actually means</p>
+        <p style="margin:0">The <strong>Record preview skin</strong> button above exports a <em>static looping video</em> (.skin.mp4) — the keyboard just plays it on repeat with no reaction to keypresses. A true <strong>interactive skin</strong> is a packaged Unreal Engine 4.27 app that runs on the keyboard's embedded GPU and fires particle effects in real time when you type. This editor lets you design and preview those effects; the steps below deploy them.</p>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px">
+
+        <div style="background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:16px 20px">
+          <p style="margin:0 0 10px;font-weight:700;color:var(--text)"><span style="font-family:ui-monospace,monospace;color:var(--accent);margin-right:8px">1</span>One-time prerequisites</p>
+          <p style="margin:0 0 8px;color:var(--muted);font-size:12px">~15–30 GB, Windows recommended</p>
+          <ul style="margin:0;padding-left:18px;color:var(--text);display:flex;flex-direction:column;gap:4px">
+            <li><strong>Unreal Engine 4.27.2</strong> — source build from Epic's GitHub (<em>not</em> the launcher version). Run <code>Setup.bat</code> then build the <code>UE4</code> target in Visual Studio 2019.</li>
+            <li><strong>Visual Studio 2019</strong> with workloads: <em>.NET Desktop</em>, <em>Desktop development with C++</em>, <em>Game development with C++</em>. VS 2022 causes UE 4.27 friction — avoid it.</li>
+            <li><strong>Android Studio</strong> — open SDK Manager and install: SDK Platform Android 11 (API 30), Build-Tools 30.0.3, NDK 21.x, CMake 3.18.1, Command-line Tools 8.0.</li>
+          </ul>
+        </div>
+
+        <div style="background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:16px 20px">
+          <p style="margin:0 0 10px;font-weight:700;color:var(--text)"><span style="font-family:ui-monospace,monospace;color:var(--accent);margin-right:8px">2</span>Scaffold the project</p>
+          <p style="margin:0 0 8px;color:var(--muted);font-size:12px">Run in the same terminal you use for <code>npm run serve</code></p>
+          <pre style="margin:0;background:var(--panel-2);border:1px solid var(--border);border-radius:6px;padding:10px 12px;font-size:12px;overflow-x:auto;white-space:pre">cpro ue pak init ./my-skin</pre>
+          <p style="margin:10px 0 0;color:var(--muted);font-size:12px">This copies the UE 4.27.2 interactive template into <code>./my-skin</code>. Then:</p>
+          <ol style="margin:8px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:12px">
+            <li>Right-click <code>CpInteractiveSkin.uproject</code> → <em>Switch Unreal Engine Version</em> → pick your source build</li>
+            <li>Open the generated <code>.sln</code> in VS 2019 and build the <code>CpInteractiveSkin</code> project</li>
+            <li>Open <code>CpInteractiveSkin.uproject</code> in the UE 4.27.2 editor (shader compilation takes 10–30 min on first open)</li>
+          </ol>
+        </div>
+
+        <div style="background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:16px 20px">
+          <p style="margin:0 0 10px;font-weight:700;color:var(--text)"><span style="font-family:ui-monospace,monospace;color:var(--accent);margin-right:8px">3</span>Run the scaffolder &amp; author your skin</p>
+          <p style="margin:0 0 6px;color:var(--muted);font-size:12px">In the UE editor Python console (<em>Window → Developer Tools → Python</em>):</p>
+          <pre style="margin:0 0 10px;background:var(--panel-2);border:1px solid var(--border);border-radius:6px;padding:10px 12px;font-size:12px;overflow-x:auto;white-space:pre">import unreal, sys
+sys.path.insert(0, unreal.Paths.project_dir() + "/Python")
+import setup_interactive; setup_interactive.main()</pre>
+          <p style="margin:0 0 6px;color:var(--muted);font-size:12px">This creates <code>/Game/MySkin/BP_KeyHighlighter</code> and <code>NS_KeyHit</code>. Open <code>BP_KeyHighlighter</code> and wire it:</p>
+          <pre style="margin:0;background:var(--panel-2);border:1px solid var(--border);border-radius:6px;padding:10px 12px;font-size:12px;overflow-x:auto;white-space:pre">[On Key Pressed]  (receives: int32 KeyIndex)
+  └→ GetPositionByKeyIndex(KeyIndex)
+       └→ Break Vector2D  →  X, Y
+            └→ Make Vector (X=X-960, Y=Y-275, Z=0)
+                 └→ Spawn System At Location (NS_KeyHit)</pre>
+          <p style="margin:8px 0 0;color:var(--muted);font-size:12px">Customise <code>NS_KeyHit</code> in the Niagara editor to match the colours/particle counts you previewed here. Keep burst count ≤ 30 and Sim Target = CPU Sim.</p>
+        </div>
+
+        <div style="background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:16px 20px">
+          <p style="margin:0 0 10px;font-weight:700;color:var(--text)"><span style="font-family:ui-monospace,monospace;color:var(--accent);margin-right:8px">4</span>Cook, package &amp; upload to the keyboard</p>
+          <p style="margin:0 0 6px;color:var(--muted);font-size:12px">From the terminal (requires <code>UE427_ROOT</code> env pointing at your UE source build):</p>
+          <pre style="margin:0;background:var(--panel-2);border:1px solid var(--border);border-radius:6px;padding:10px 12px;font-size:12px;overflow-x:auto;white-space:pre"># Cook assets → dist/skin.pak
+cpro ue pak cook ./my-skin
+
+# Upload to keyboard slot 0 (auto-discovers on LAN)
+cpro ue pak upload dist/skin.pak --slot 0
+
+# If auto-discovery fails, pass the keyboard IP directly
+cpro ue pak upload dist/skin.pak --slot 0 --host 192.168.1.42</pre>
+          <p style="margin:10px 0 0;color:var(--muted);font-size:12px">Slots 0–4 correspond to the five skin slots visible in the Finalmouse XPanel app. The first cook triggers a full Android build inside the editor and can take 30–60 min; subsequent cooks are incremental and much faster.</p>
+        </div>
+
+      </div>
+
+      <p style="margin:0;color:var(--muted);font-size:12px;text-align:center">Need help? Check <code>ue-interactive-template/README.md</code> in the project folder for the full reference.</p>
+
+    </div>
+  </details>
+
+</main>
+
+<script>
+// ============================================================
+// CENTERPIECE FOUNDER'S EDITION — KEY LAYOUT
+//
+// Source: Finalmouse XPanel v2.0.9 confirmed live key list
+// 67 keys total. Spacebar exists physically but is NOT indexed.
+//
+// Row 0 (y≈75):  Esc 1-0 - = Bksp  |  Ins PgUp
+// Row 1 (y≈175): Tab Q-P [ ] \      |  Del PgDn
+// Row 2 (y≈275): Caps A-L ; ' Enter
+// Row 3 (y≈375): LShift Z-/ RShift  |  ↑
+// Row 4 (y≈475): LCtrl Win LAlt [Space-unindexed] RAlt Fn RCtrl | ← ↓ →
+//
+// Indices 1-67 map to HID USB key codes for OnKeyEvent(HCode,...).
+// ============================================================
+
+// ── Recording state ────────────────────────────────────────
+let recCanvas  = null;   // offscreen composite canvas
+let recCtx     = null;
+let recActive  = false;
+let recChunks  = [];
+let recRecorder = null;
+
+// ── Canvas dimensions ──────────────────────────────────────
+const W = 1920, H = 550;
+// Key unit (~103px), key height, and layout constants
+const U        = 103;
+const KH       = 88;
+const MARGIN   = 14;
+const NAV_GAP  = 48;  // gap between main block right edge and nav cluster
+
+// Row Y-centres (verified against physical keyboard)
+const Y = [75, 175, 275, 375, 475];
+
+// Nav cluster x-centres (right-side column)
+// NAV_C[2] right edge = 1868 + U/2 = 1919.5 — fits the 1920px canvas
+const NAV_C = [1654, 1761, 1868];
+
+// ── Key builder helper ──────────────────────────────────────
+function key(index, label, hid, cx, cy, w) {
+  return { index, label, hid, cx, cy, x: cx - w/2, y: cy - KH/2, w, h: KH };
+}
+
+// Build a row of keys with explicit widths starting from left margin
+function buildRow(yRow, startIdx, labels, hids, widths) {
+  let cx = MARGIN;
+  return labels.map((lbl, i) => {
+    const w = Array.isArray(widths) ? widths[i] : widths;
+    cx += w / 2;
+    const k = key(startIdx + i, lbl, hids[i], cx, yRow, w);
+    cx += w / 2 + 4;
+    return k;
+  });
+}
+
+// ── Row 0: Esc 1-0 - = Bksp (indices 1-14) ─────────────────
+const R0 = buildRow(Y[0], 1,
+  ['Esc','1','2','3','4','5','6','7','8','9','0','-','=','⌫'],
+  [41,30,31,32,33,34,35,36,37,38,39,45,46,42],
+  [U*1.1,U,U,U,U,U,U,U,U,U,U,U,U,U*2]
+);
+
+// ── Row 1: Tab Q-P [ ] \ (indices 17-30) ───────────────────
+const R1 = buildRow(Y[1], 17,
+  ['Tab','Q','W','E','R','T','Y','U','I','O','P','[',']','\\'],
+  [43,20,26,8,21,23,28,24,12,18,19,47,48,49],
+  [U*1.5,U,U,U,U,U,U,U,U,U,U,U,U,U*1.5]
+);
+
+// ── Row 2: Caps A-L ; ' Enter (indices 33-45) ───────────────
+const R2 = buildRow(Y[2], 33,
+  ['Caps','A','S','D','F','G','H','J','K','L',';',"'",'↵'],
+  [57,4,22,7,9,10,11,13,14,15,51,52,40],
+  [U*1.75,U,U,U,U,U,U,U,U,U,U,U,U*2.25]
+);
+
+// ── Row 3: LShift Z-/ RShift (indices 46-57) ────────────────
+const R3 = buildRow(Y[3], 46,
+  ['⇧','Z','X','C','V','B','N','M',',','.','/',  '⇧'],
+  [225,29,27,6,25,5,17,16,54,55,56,229],
+  [U*2.25,U,U,U,U,U,U,U,U,U,U,U*1.75]
+);
+
+// ── Row 4: Modifiers (indices 59-64), Space unindexed ───────
+const R4 = [];
+(function() {
+  const u4 = 101;
+  const gapX = 4;
+  let cx = MARGIN;
+  const specs = [
+    [59,'Ctrl',224,u4*1.25],
+    [60,'⊞',  227,u4*1.25],
+    [61,'Alt', 226,u4*1.5 ],
+    // SPACE: cx jumps over 6.25U spacebar (unindexed)
+    [62,'Alt', 230,u4*1.5 ],
+    [63,'Fn',  0,  u4*1.25],
+    [64,'Ctrl',228,u4*1.25],
+  ];
+  specs.forEach(([idx, lbl, hid, w], i) => {
+    if (i === 3) cx += u4 * 6.25 + gapX;
+    cx += w / 2;
+    R4.push(key(idx, lbl, hid, cx, Y[4], w));
+    cx += w / 2 + gapX;
+  });
+})();
+
+// ── Nav cluster keys ────────────────────────────────────────
+const NAV = [
+  key(15,'Ins', 73, NAV_C[1], Y[0], U),
+  key(16,'PgUp',75, NAV_C[2], Y[0], U),
+  key(31,'Del', 76, NAV_C[1], Y[1], U),
+  key(32,'PgDn',78, NAV_C[2], Y[1], U),
+  key(58,'↑',   82, NAV_C[1], Y[3], U),  // directly above ↓
+  key(65,'←',   80, NAV_C[0], Y[4], U),
+  key(66,'↓',   81, NAV_C[1], Y[4], U),
+  key(67,'→',   79, NAV_C[2], Y[4], U),
+];
+
+// ── Flatten + sort all 67 keys ─────────────────────────────
+const ALL_KEYS = [...R0,...R1,...R2,...R3,...R4,...NAV]
+  .sort((a,b) => a.index - b.index);
+
+const KEY_BY_INDEX = Object.fromEntries(ALL_KEYS.map(k => [k.index, k]));
+
+// HID → key index (for desktop keyboard events)
+const HID_TO_INDEX = Object.fromEntries(ALL_KEYS.filter(k=>k.hid).map(k=>[k.hid, k.index]));
+
+// KeyboardEvent.code → USB HID usage code
+const CODE_TO_HID = {
+  'Escape':41,
+  'Digit1':30,'Digit2':31,'Digit3':32,'Digit4':33,'Digit5':34,
+  'Digit6':35,'Digit7':36,'Digit8':37,'Digit9':38,'Digit0':39,
+  'Minus':45,'Equal':46,'Backspace':42,
+  'Tab':43,
+  'KeyQ':20,'KeyW':26,'KeyE':8,'KeyR':21,'KeyT':23,
+  'KeyY':28,'KeyU':24,'KeyI':12,'KeyO':18,'KeyP':19,
+  'BracketLeft':47,'BracketRight':48,'Backslash':49,
+  'CapsLock':57,'KeyA':4,'KeyS':22,'KeyD':7,'KeyF':9,'KeyG':10,
+  'KeyH':11,'KeyJ':13,'KeyK':14,'KeyL':15,
+  'Semicolon':51,'Quote':52,'Enter':40,
+  'ShiftLeft':225,'KeyZ':29,'KeyX':27,'KeyC':6,'KeyV':25,
+  'KeyB':5,'KeyN':17,'KeyM':16,
+  'Comma':54,'Period':55,'Slash':56,'ShiftRight':229,
+  'ControlLeft':224,'MetaLeft':227,'AltLeft':226,
+  'AltRight':230,'ControlRight':228,
+  'Insert':73,'PageUp':75,'Delete':76,'PageDown':78,
+  'ArrowLeft':80,'ArrowDown':81,'ArrowUp':82,'ArrowRight':79,
+};
+
+// (Old row-based layout removed — see ALL_KEYS / KEY_BY_INDEX above)
+
+// ============================================================
+// CANVAS SETUP
+// ============================================================
+const canvasBg   = document.getElementById('canvas-bg');
+const canvasKeys = document.getElementById('canvas-keys');
+const canvasFx   = document.getElementById('canvas-fx');
+const canvasHit  = document.getElementById('canvas-hit');
+
+const ctxBg   = canvasBg.getContext('2d');
+const ctxKeys = canvasKeys.getContext('2d');
+const ctxFx   = canvasFx.getContext('2d');
+
+// ============================================================
+// BACKGROUND
+// ============================================================
+let bgType  = 'color'; // 'color' | 'image' | 'video'
+let bgImage = null;
+let bgVideo = null;
+let bgColor = '#0b0b0d';
+
+document.getElementById('btn-upload-bg').addEventListener('click', () => {
+  document.getElementById('input-bg').click();
+});
+document.getElementById('input-bg').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  if (file.type.startsWith('video/')) {
+    bgVideo = document.createElement('video');
+    bgVideo.src = url;
+    bgVideo.loop = true;
+    bgVideo.muted = true;
+    bgVideo.playsInline = true;
+    bgVideo.play().catch(() => {});
+    bgType = 'video';
+    bgImage = null;
+  } else {
+    const img = new Image();
+    img.onload = () => { bgImage = img; bgType = 'image'; bgVideo = null; };
+    img.src = url;
+  }
+});
+document.getElementById('input-bgcolor').addEventListener('input', (e) => {
+  bgColor = e.target.value;
+});
+
+function drawBackground() {
+  ctxBg.fillStyle = bgColor;
+  ctxBg.fillRect(0, 0, 1920, 550);
+  if (bgType === 'image' && bgImage) {
+    const scale = Math.max(1920 / bgImage.width, 550 / bgImage.height);
+    ctxBg.drawImage(bgImage, (1920-bgImage.width*scale)/2, (550-bgImage.height*scale)/2,
+      bgImage.width*scale, bgImage.height*scale);
+  } else if (bgType === 'video' && bgVideo && bgVideo.readyState >= 2) {
+    const scale = Math.max(1920 / bgVideo.videoWidth, 550 / bgVideo.videoHeight);
+    ctxBg.drawImage(bgVideo, (1920-bgVideo.videoWidth*scale)/2, (550-bgVideo.videoHeight*scale)/2,
+      bgVideo.videoWidth*scale, bgVideo.videoHeight*scale);
+  }
+  // Spacebar area: unindexed, draw subtle indicator between LAlt and RAlt
+  const lalt = KEY_BY_INDEX[61], ralt = KEY_BY_INDEX[62];
+  if (lalt && ralt) {
+    const sx = lalt.x + lalt.w + 4, sw = ralt.x - sx - 4;
+    ctxBg.fillStyle = 'rgba(255,255,255,0.025)';
+    ctxBg.beginPath(); ctxBg.roundRect(sx, ralt.y, sw, KH, 4); ctxBg.fill();
+    ctxBg.strokeStyle = 'rgba(255,255,255,0.07)';
+    ctxBg.lineWidth = 1; ctxBg.stroke();
+  }
+}
+
+// ============================================================
+// KEY OVERLAY RENDERING
+// ============================================================
+let showKeys     = true;
+let showLabels   = true;
+let showIndices  = true;
+let overlayOpacity = 0.5;
+
+let hoveredIndex = null;
+
+document.getElementById('btn-show-keys').addEventListener('click', (e) => {
+  showKeys = !showKeys;
+  e.currentTarget.classList.toggle('active', showKeys);
+});
+document.getElementById('btn-show-labels').addEventListener('click', (e) => {
+  showLabels = !showLabels;
+  e.currentTarget.classList.toggle('active', showLabels);
+});
+document.getElementById('btn-show-indices').addEventListener('click', (e) => {
+  showIndices = !showIndices;
+  e.currentTarget.classList.toggle('active', showIndices);
+});
+document.getElementById('input-overlay-opacity').addEventListener('input', (e) => {
+  overlayOpacity = Number(e.target.value);
+});
+
+function drawKeyOverlay() {
+  ctxKeys.clearRect(0, 0, 1920, 550);
+  if (!showKeys) return;
+
+  ctxKeys.globalAlpha = overlayOpacity;
+
+  for (const k of ALL_KEYS) {
+    const isHovered = k.index === hoveredIndex;
+    const isActive  = activeKeys.has(k.index);
+
+    ctxKeys.fillStyle = isActive  ? 'rgba(106,166,255,0.38)'
+                      : isHovered ? 'rgba(255,255,255,0.14)'
+                      :             'rgba(255,255,255,0.05)';
+    ctxKeys.beginPath();
+    ctxKeys.roundRect(k.x, k.y, k.w, k.h, 5);
+    ctxKeys.fill();
+
+    ctxKeys.strokeStyle = isActive  ? 'rgba(106,166,255,0.95)'
+                        : isHovered ? 'rgba(255,255,255,0.55)'
+                        :             'rgba(255,255,255,0.18)';
+    ctxKeys.lineWidth = isActive || isHovered ? 1.5 : 1;
+    ctxKeys.stroke();
+
+    ctxKeys.fillStyle = isActive ? '#6aa6ff' : 'rgba(255,255,255,0.35)';
+    ctxKeys.beginPath();
+    ctxKeys.arc(k.cx, k.cy, isActive ? 3.5 : 2, 0, Math.PI * 2);
+    ctxKeys.fill();
+
+    ctxKeys.globalAlpha = overlayOpacity * (isHovered || isActive ? 1 : 0.9);
+
+    const showBoth = showLabels && showIndices;
+    if (showLabels) {
+      ctxKeys.fillStyle = isActive ? '#fff' : isHovered ? '#e7e7ea' : '#aaa';
+      const fs = Math.max(9, Math.min(14, (k.w - 8) / (k.label.length * 0.65)));
+      ctxKeys.font = `bold ${fs}px -apple-system, system-ui, sans-serif`;
+      ctxKeys.textAlign = 'center';
+      ctxKeys.textBaseline = 'middle';
+      ctxKeys.fillText(k.label, k.cx, k.cy + (showBoth ? -8 : 0));
+    }
+    if (showIndices) {
+      ctxKeys.fillStyle = isActive ? 'rgba(106,166,255,0.9)' : 'rgba(255,255,255,0.35)';
+      ctxKeys.font = '9px ui-monospace, monospace';
+      ctxKeys.textAlign = 'center';
+      ctxKeys.textBaseline = 'middle';
+      ctxKeys.fillText(String(k.index), k.cx, k.cy + (showBoth ? 9 : 0));
+    }
+  }
+  ctxKeys.globalAlpha = 1;
+}
+
+// ============================================================
+// PARTICLE / FX SYSTEM
+// ============================================================
+let effectMode    = 'burst';
+let effectColor   = '#6aa6ff';
+let particleCount = 25;
+
+document.getElementById('select-effect').addEventListener('change', (e) => {
+  effectMode = e.target.value;
+  document.getElementById('input-effect-color').hidden = effectMode !== 'custom';
+});
+document.getElementById('input-effect-color').addEventListener('input', (e) => {
+  effectColor = e.target.value;
+});
+document.getElementById('input-particle-count').addEventListener('input', (e) => {
+  particleCount = Number(e.target.value);
+  document.getElementById('label-particle-count').textContent = e.target.value;
+});
+
+const particles = [];
+const ripples   = [];
+const bolts     = [];
+
+// ── Spawn dispatcher ─────────────────────────────────────────
+function spawnBurst(cx, cy) {
+  switch (effectMode) {
+    case 'burst':     return spawnExplosion(cx, cy);
+    case 'fire':      return spawnFire(cx, cy);
+    case 'ice':       return spawnIce(cx, cy);
+    case 'ripple':    return spawnRipple(cx, cy);
+    case 'lightning': return spawnLightning(cx, cy);
+    case 'matrix':    return spawnMatrix(cx, cy);
+    case 'confetti':  return spawnConfetti(cx, cy);
+    case 'smoke':     return spawnSmoke(cx, cy);
+    default:          return spawnExplosion(cx, cy);
+  }
+}
+
+// ── Burst: radial explosion with trails & glow ───────────────
+function spawnExplosion(cx, cy) {
+  const n = particleCount;
+  for (let i = 0; i < n; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 3 + Math.random() * 9;
+    const color = effectMode === 'custom'
+      ? effectColor
+      : `hsl(${(i * 137.5) % 360}, 100%, 70%)`;
+    particles.push({
+      kind: 'burst',
+      x: cx, y: cy,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - 2,
+      size: 1.5 + Math.random() * 3.5,
+      life: 1.0, decay: 0.018 + Math.random() * 0.025,
+      color, trail: [],
+    });
+  }
+}
+
+// ── Fire: upward flame puffs with wavering horizontal drift ──
+function spawnFire(cx, cy) {
+  for (let i = 0; i < particleCount; i++) {
+    const angle = (210 + Math.random() * 120) * (Math.PI / 180);
+    const speed = 1.5 + Math.random() * 4;
+    const hue   = Math.random() < 0.6 ? Math.random() * 20 : 40 + Math.random() * 20;
+    particles.push({
+      kind: 'fire',
+      x: cx + (Math.random() - 0.5) * 20, y: cy,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      size: 4 + Math.random() * 7,
+      life: 1.0, decay: 0.013 + Math.random() * 0.018,
+      color: `hsl(${hue}, 100%, 60%)`,
+      phase: Math.random() * Math.PI * 2,
+      wave:  0.3 + Math.random() * 0.5,
+    });
+  }
+}
+
+// ── Ice: slow crystalline line-shards, low gravity ───────────
+function spawnIce(cx, cy) {
+  for (let i = 0; i < particleCount; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 0.8 + Math.random() * 3;
+    const hue   = 185 + Math.random() * 30;
+    particles.push({
+      kind: 'ice',
+      x: cx, y: cy,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - 0.5,
+      rotation: Math.random() * Math.PI * 2,
+      len:  8 + Math.random() * 14,
+      size: 1.2 + Math.random() * 1.5,
+      life: 1.0, decay: 0.009 + Math.random() * 0.013,
+      color: `hsl(${hue}, 80%, ${75 + Math.random() * 20}%)`,
+    });
+  }
+}
+
+// ── Ripple: expanding ring + small inner burst ───────────────
+function spawnRipple(cx, cy) {
+  const hue = Math.floor(Math.random() * 360);
+  ripples.push({
+    x: cx, y: cy, r: 5,
+    maxR: 80 + particleCount * 2,
+    life: 1.0, decay: 0.022,
+    color: `hsl(${hue}, 100%, 70%)`,
+    lineWidth: 2 + Math.random() * 2,
+  });
+  const n = Math.min(particleCount, 12);
+  for (let i = 0; i < n; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 1.5 + Math.random() * 3;
+    particles.push({
+      kind: 'burst',
+      x: cx, y: cy,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      size: 1.5 + Math.random() * 2,
+      life: 0.8, decay: 0.03 + Math.random() * 0.02,
+      color: `hsl(${hue}, 100%, 75%)`, trail: [],
+    });
+  }
+}
+
+// ── Lightning: recursive branching bolt upward ───────────────
+function buildBolt(x1, y1, x2, y2, depth, segs) {
+  if (depth === 0) return;
+  segs.push([x1, y1, x2, y2]);
+  const mx = (x1 + x2) / 2 + (Math.random() - 0.5) * 40 * depth;
+  const my = (y1 + y2) / 2 + (Math.random() - 0.5) * 10 * depth;
+  buildBolt(x1, y1, mx, my, depth - 1, segs);
+  buildBolt(mx, my, x2, y2, depth - 1, segs);
+  if (depth === 2 && Math.random() < 0.5) {
+    buildBolt(mx, my, mx + (Math.random() - 0.5) * 80, my - Math.random() * 60, 1, segs);
+  }
+}
+function spawnLightning(cx, cy) {
+  const segs = [];
+  buildBolt(cx, cy, cx + (Math.random() - 0.5) * 60, cy - 120 - Math.random() * 80, 3, segs);
+  const hue = 200 + Math.random() * 60;
+  bolts.push({
+    segs, life: 1.0, decay: 0.08 + Math.random() * 0.05,
+    color: `hsl(${hue}, 100%, 85%)`,
+  });
+  ripples.push({
+    x: cx, y: cy, r: 2, maxR: 30,
+    life: 0.7, decay: 0.08,
+    color: `hsl(${hue}, 100%, 90%)`, lineWidth: 1.5,
+  });
+}
+
+// ── Matrix: falling glyphs that randomise as they drop ───────
+const MATRIX_CHARS = '01アイウエオカキクケコサシスセソタチ';
+function spawnMatrix(cx, cy) {
+  for (let i = 0; i < particleCount; i++) {
+    const hue = 110 + Math.random() * 30;
+    particles.push({
+      kind: 'matrix',
+      x: cx + (Math.random() - 0.5) * 200,
+      y: cy + (Math.random() - 0.5) * 30,
+      vx: (Math.random() - 0.5) * 0.5,
+      vy: 2 + Math.random() * 4,
+      size: 10 + Math.random() * 8,
+      life: 1.0, decay: 0.008 + Math.random() * 0.012,
+      color: `hsl(${hue}, 100%, ${50 + Math.random() * 30}%)`,
+      char: MATRIX_CHARS[Math.floor(Math.random() * MATRIX_CHARS.length)],
+      charTimer: 0,
+    });
+  }
+}
+
+// ── Confetti: rotating coloured rectangles ───────────────────
+function spawnConfetti(cx, cy) {
+  for (let i = 0; i < particleCount; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 3 + Math.random() * 8;
+    particles.push({
+      kind: 'confetti',
+      x: cx, y: cy,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - 3,
+      rotation: Math.random() * Math.PI * 2,
+      spin: (Math.random() - 0.5) * 0.25,
+      w: 6 + Math.random() * 8,
+      h: 3 + Math.random() * 4,
+      life: 1.0, decay: 0.012 + Math.random() * 0.018,
+      color: `hsl(${Math.random() * 360}, 100%, 65%)`,
+    });
+  }
+}
+
+// ── Smoke: large soft puffs that rise and expand ─────────────
+function spawnSmoke(cx, cy) {
+  const n = Math.max(4, Math.floor(particleCount * 0.5));
+  for (let i = 0; i < n; i++) {
+    particles.push({
+      kind: 'smoke',
+      x: cx + (Math.random() - 0.5) * 30, y: cy,
+      vx: (Math.random() - 0.5) * 0.8,
+      vy: -(0.8 + Math.random() * 1.5),
+      size: 8 + Math.random() * 10,
+      maxSize: 30 + Math.random() * 30,
+      life: 1.0, decay: 0.007 + Math.random() * 0.01,
+    });
+  }
+}
+
+// ── Update & draw all fx ─────────────────────────────────────
+function updateAndDrawFx() {
+  ctxFx.clearRect(0, 0, W, H);
+
+  // Ripples
+  for (let i = ripples.length - 1; i >= 0; i--) {
+    const r = ripples[i];
+    r.r    += (r.maxR - r.r) * 0.12;
+    r.life -= r.decay;
+    if (r.life <= 0) { ripples.splice(i, 1); continue; }
+    ctxFx.globalAlpha = r.life * 0.9;
+    ctxFx.strokeStyle = r.color;
+    ctxFx.lineWidth   = r.lineWidth * r.life;
+    ctxFx.beginPath();
+    ctxFx.arc(r.x, r.y, r.r, 0, Math.PI * 2);
+    ctxFx.stroke();
+  }
+
+  // Bolts
+  for (let i = bolts.length - 1; i >= 0; i--) {
+    const b = bolts[i];
+    b.life -= b.decay;
+    if (b.life <= 0) { bolts.splice(i, 1); continue; }
+    ctxFx.save();
+    ctxFx.globalAlpha = b.life;
+    ctxFx.strokeStyle = b.color;
+    ctxFx.shadowColor = b.color;
+    ctxFx.shadowBlur  = 10;
+    ctxFx.lineWidth   = 1.5 * b.life;
+    for (const [x1, y1, x2, y2] of b.segs) {
+      ctxFx.beginPath();
+      ctxFx.moveTo(x1, y1);
+      ctxFx.lineTo(x2, y2);
+      ctxFx.stroke();
+    }
+    ctxFx.restore();
+  }
+
+  // Particles (all kinds)
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x    += p.vx;
+    p.y    += p.vy;
+    p.life -= p.decay;
+    if (p.life <= 0) { particles.splice(i, 1); continue; }
+
+    switch (p.kind) {
+
+      case 'burst': {
+        p.vy += 0.25; p.vx *= 0.98;
+        // trail
+        p.trail.push({ x: p.x, y: p.y });
+        if (p.trail.length > 5) p.trail.shift();
+        if (p.trail.length > 1) {
+          ctxFx.save();
+          for (let t = 1; t < p.trail.length; t++) {
+            ctxFx.globalAlpha = (t / p.trail.length) * p.life * 0.4;
+            ctxFx.strokeStyle = p.color;
+            ctxFx.lineWidth   = p.size * (t / p.trail.length);
+            ctxFx.beginPath();
+            ctxFx.moveTo(p.trail[t-1].x, p.trail[t-1].y);
+            ctxFx.lineTo(p.trail[t].x,   p.trail[t].y);
+            ctxFx.stroke();
+          }
+          ctxFx.restore();
+        }
+        ctxFx.globalAlpha = p.life;
+        ctxFx.fillStyle   = p.color;
+        ctxFx.beginPath();
+        ctxFx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctxFx.fill();
+        ctxFx.globalAlpha = p.life * 0.3;
+        const gb = ctxFx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size * 4);
+        gb.addColorStop(0, p.color); gb.addColorStop(1, 'transparent');
+        ctxFx.fillStyle = gb;
+        ctxFx.beginPath();
+        ctxFx.arc(p.x, p.y, p.size * 4, 0, Math.PI * 2);
+        ctxFx.fill();
+        break;
+      }
+
+      case 'fire': {
+        p.vy  -= 0.04;
+        p.vx  += Math.sin(p.phase + p.y * 0.04) * p.wave * 0.3;
+        p.vx  *= 0.97;
+        p.size *= 0.986;
+        const gf = ctxFx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size);
+        gf.addColorStop(0, p.color.replace('60%', '95%'));
+        gf.addColorStop(0.5, p.color);
+        gf.addColorStop(1, 'transparent');
+        ctxFx.globalAlpha = p.life * 0.85;
+        ctxFx.fillStyle   = gf;
+        ctxFx.beginPath();
+        ctxFx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctxFx.fill();
+        break;
+      }
+
+      case 'ice': {
+        p.vy += 0.06; p.vx *= 0.95; p.vy *= 0.97;
+        p.rotation += 0.03;
+        ctxFx.save();
+        ctxFx.globalAlpha = p.life;
+        ctxFx.translate(p.x, p.y);
+        ctxFx.rotate(p.rotation);
+        ctxFx.strokeStyle = p.color;
+        ctxFx.lineWidth   = p.size;
+        ctxFx.shadowColor = p.color;
+        ctxFx.shadowBlur  = 5;
+        ctxFx.beginPath();
+        ctxFx.moveTo(-p.len / 2, 0); ctxFx.lineTo(p.len / 2, 0);
+        ctxFx.stroke();
+        ctxFx.beginPath();
+        ctxFx.moveTo(0, -p.len / 3); ctxFx.lineTo(0, p.len / 3);
+        ctxFx.stroke();
+        ctxFx.restore();
+        break;
+      }
+
+      case 'matrix': {
+        p.charTimer++;
+        if (p.charTimer % 8 === 0)
+          p.char = MATRIX_CHARS[Math.floor(Math.random() * MATRIX_CHARS.length)];
+        ctxFx.save();
+        ctxFx.globalAlpha  = p.life;
+        ctxFx.fillStyle    = p.color;
+        ctxFx.font         = `bold ${Math.round(p.size)}px ui-monospace, monospace`;
+        ctxFx.textAlign    = 'center';
+        ctxFx.textBaseline = 'middle';
+        ctxFx.shadowColor  = p.color;
+        ctxFx.shadowBlur   = 6;
+        ctxFx.fillText(p.char, p.x, p.y);
+        ctxFx.restore();
+        break;
+      }
+
+      case 'confetti': {
+        p.vy += 0.18; p.vx *= 0.99;
+        p.rotation += p.spin;
+        ctxFx.save();
+        ctxFx.globalAlpha = p.life;
+        ctxFx.translate(p.x, p.y);
+        ctxFx.rotate(p.rotation);
+        ctxFx.fillStyle = p.color;
+        ctxFx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+        ctxFx.restore();
+        break;
+      }
+
+      case 'smoke': {
+        p.vx  *= 0.99;
+        p.size = Math.min(p.size + 0.4, p.maxSize);
+        const gs = ctxFx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size);
+        gs.addColorStop(0, `rgba(210,210,230,${(p.life * 0.35).toFixed(3)})`);
+        gs.addColorStop(1, `rgba(210,210,230,0)`);
+        ctxFx.fillStyle = gs;
+        ctxFx.beginPath();
+        ctxFx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctxFx.fill();
+        break;
+      }
+    }
+  }
+
+  ctxFx.globalAlpha = 1;
+  ctxFx.shadowBlur  = 0;
+}
+
+// ============================================================
+// HIT DETECTION (mouse on canvas-hit)
+// ============================================================
+function canvasCoords(e) {
+  const rect  = canvasHit.getBoundingClientRect();
+  const scaleX = 1920 / rect.width;
+  const scaleY = 550  / rect.height;
+  return {
+    x: (e.clientX - rect.left)  * scaleX,
+    y: (e.clientY - rect.top)   * scaleY,
+  };
+}
+
+function hitTest(cx, cy) {
+  for (const k of ALL_KEYS) {
+    if (cx >= k.x && cx <= k.x + k.w && cy >= k.y && cy <= k.y + k.h) return k;
+  }
+  return null;
+}
+
+canvasHit.addEventListener('mousemove', (e) => {
+  const { x, y } = canvasCoords(e);
+  const hit = hitTest(x, y);
+  hoveredIndex = hit ? hit.index : null;
+  canvasHit.style.cursor = hit ? 'pointer' : 'crosshair';
+
+  if (hit) {
+    document.getElementById('info-key').textContent = `#${hit.index} — ${hit.label}`;
+    document.getElementById('info-hid').textContent = `0x${hit.hid.toString(16).padStart(2,'0')} (${hit.hid})`;
+    document.getElementById('info-pos').textContent = `(${Math.round(hit.cx)}, ${Math.round(hit.cy)})`;
+    document.querySelectorAll('.key-cell').forEach(el =>
+      el.classList.toggle('active', Number(el.dataset.index) === hit.index));
+  } else {
+    document.getElementById('info-key').textContent = '—';
+    document.getElementById('info-hid').textContent = '—';
+    document.getElementById('info-pos').textContent = '—';
+    document.querySelectorAll('.key-cell').forEach(el => el.classList.remove('active'));
+  }
+});
+
+canvasHit.addEventListener('mouseleave', () => {
+  hoveredIndex = null;
+});
+
+canvasHit.addEventListener('click', (e) => {
+  const { x, y } = canvasCoords(e);
+  const hit = hitTest(x, y);
+  if (hit) triggerKey(hit.index);
+});
+
+// ============================================================
+// ACTIVE KEY STATE (visual highlight + effect)
+// ============================================================
+const activeKeys  = new Set();
+const keyTimers   = new Map();
+
+function triggerKey(index) {
+  const k = KEY_BY_INDEX[index]; if (!k) return;
+  spawnBurst(k.cx, k.cy);
+  activeKeys.add(index);
+  if (keyTimers.has(index)) clearTimeout(keyTimers.get(index));
+  keyTimers.set(index, setTimeout(() => activeKeys.delete(index), 180));
+}
+
+// ============================================================
+// DESKTOP KEYBOARD INPUT
+// ============================================================
+const pressedCodes = new Set();
+
+document.addEventListener('keydown', (e) => {
+  if (pressedCodes.has(e.code)) return;
+  pressedCodes.add(e.code);
+  const hid   = CODE_TO_HID[e.code];
+  const index = hid ? HID_TO_INDEX[hid] : undefined;
+  if (index) { e.preventDefault(); triggerKey(index); }
+});
+
+document.addEventListener('keyup', (e) => pressedCodes.delete(e.code));
+
+// ============================================================
+// RENDER LOOP
+// ============================================================
+function renderLoop() {
+  drawBackground();
+  drawKeyOverlay();
+  updateAndDrawFx();
+  if (recActive && recCtx) {
+    recCtx.drawImage(canvasBg,   0, 0);
+    recCtx.drawImage(canvasKeys, 0, 0);
+    recCtx.drawImage(canvasFx,   0, 0);
+  }
+  requestAnimationFrame(renderLoop);
+}
+requestAnimationFrame(renderLoop);
+
+// ============================================================
+// RECORD & DOWNLOAD
+// ============================================================
+function runDemoSweep(durationMs) {
+  const allIdx = ALL_KEYS.map(k => k.index);
+  const endAt  = Date.now() + durationMs;
+  let wavePos  = 0;
+  function tick() {
+    if (Date.now() >= endAt) return;
+    // wave: advance 1-2 keys left-to-right, plus 1 random burst
+    for (let j = 0; j < 2; j++) {
+      triggerKey(allIdx[wavePos % allIdx.length]);
+      wavePos++;
+    }
+    triggerKey(allIdx[Math.floor(Math.random() * allIdx.length)]);
+    setTimeout(tick, 80);
+  }
+  tick();
+}
+
+document.getElementById('btn-record').addEventListener('click', async () => {
+  const btn   = document.getElementById('btn-record');
+  const timer = document.getElementById('record-timer');
+  if (recActive) return;
+
+  // Choose best supported mimeType
+  const mimeTypes = [
+    'video/webm;codecs=vp9',
+    'video/webm;codecs=vp8',
+    'video/webm',
+  ];
+  const mimeType = mimeTypes.find(m => MediaRecorder.isTypeSupported(m)) || '';
+  if (!mimeType && typeof MediaRecorder === 'undefined') {
+    alert('MediaRecorder is not supported in this browser. Try Chrome or Firefox.');
+    return;
+  }
+
+  // Set up offscreen composite canvas
+  recCanvas = document.createElement('canvas');
+  recCanvas.width  = W;
+  recCanvas.height = H;
+  recCtx    = recCanvas.getContext('2d');
+  recChunks = [];
+  recActive = true;
+
+  const DURATION = 5000;
+  let remaining  = DURATION / 1000;
+
+  btn.textContent = `⏹ Recording…`;
+  btn.classList.add('recording');
+  timer.textContent = `${remaining}s`;
+  timer.hidden = false;
+
+  const countTick = setInterval(() => {
+    remaining--;
+    timer.textContent = remaining > 0 ? `${remaining}s` : '';
+    if (remaining <= 0) clearInterval(countTick);
+  }, 1000);
+
+  const stream   = recCanvas.captureStream(60);
+  recRecorder    = new MediaRecorder(stream, mimeType ? { mimeType, videoBitsPerSecond: 8_000_000 } : {});
+  recRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) recChunks.push(e.data); };
+
+  recRecorder.onstop = async () => {
+    clearInterval(countTick);
+    recActive  = false;
+    recCtx     = null;
+    timer.hidden = true;
+    btn.textContent = '⏳ Converting…';
+    btn.disabled    = true;
+
+    const blob = new Blob(recChunks, { type: mimeType || 'video/webm' });
+    const fd   = new FormData();
+    fd.append('file', blob, 'interactive-skin-demo.webm');
+    fd.append('fit',  'cover');
+    fd.append('fps',  '60');
+    fd.append('bitrate', '8');
+    try {
+      const res  = await fetch('/api/convert', { method: 'POST', body: fd });
+      const json = await res.json();
+      if (json.ok) {
+        const a = document.createElement('a');
+        a.href     = `/api/download/${json.id}`;
+        a.download = json.filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      } else {
+        alert('Conversion failed: ' + (json.error ?? 'unknown error'));
+      }
+    } catch (err) {
+      alert('Network error: ' + err.message);
+    } finally {
+      btn.textContent = '⏺ Record & Download';
+      btn.classList.remove('recording');
+      btn.disabled    = false;
+    }
+  };
+
+  recRecorder.start();
+  runDemoSweep(DURATION);
+  setTimeout(() => {
+    if (recRecorder && recRecorder.state === 'recording') recRecorder.stop();
+  }, DURATION);
+});
+
+// ============================================================
+// KEY INDEX TABLE
+// ============================================================
+const tableEl = document.getElementById('key-table');
+for (const k of ALL_KEYS) {
+  const div = document.createElement('div');
+  div.className = 'key-cell';
+  div.dataset.index = k.index;
+  div.innerHTML = `<span class="key-idx">${k.index}</span><span class="key-label">${k.label}</span>`;
+  div.title = `HID 0x${k.hid.toString(16).padStart(2,'0')} (${k.hid})`;
+  div.addEventListener('click', () => triggerKey(k.index));
+  tableEl.appendChild(div);
+}
+</script>
+</body>
+</html>

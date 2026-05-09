@@ -1,56 +1,190 @@
 # cpro-util
 
-Media conversion toolbox for the **Finalmouse Centerpiece Founders Edition** keyboard display.
+Convert any image, video, GIF, or YouTube/Vimeo URL into a ready-to-upload skin for the **Finalmouse Centerpiece Pro** keyboard panel (1920×550).
 
-Converts any image, video, GIF, or YouTube/Vimeo URL into a ready-to-upload skin for the Centerpiece Pro panel (1920×550). Ships with a drag-and-drop web UI and a CLI.
-
----
-
-## Prerequisites
-
-| Requirement | Notes |
-|---|---|
-| **Node.js 20+** | [nodejs.org](https://nodejs.org) — check with `node --version` |
-| **ffmpeg / ffprobe** | **Bundled automatically** via npm — no separate install needed |
-| **yt-dlp** *(optional)* | Only needed for YouTube/Vimeo URL conversion. `brew install yt-dlp` or `pip install yt-dlp` |
+Comes with a drag-and-drop browser UI — no coding required to use it. Just follow the steps below.
 
 ---
 
-## Quick setup (recommended)
+## Get up and running (5 minutes, no experience needed)
 
-Clone or download the repo, then run the setup script — it checks prerequisites, installs dependencies, builds, and offers to launch the web UI:
+> **No IDE, no git, no prior setup required.** Just follow the steps for your operating system.
+
+### Step 1 — Install Node.js
+
+Node.js is the only thing you need to install. ffmpeg (the video tool) is bundled automatically.
+
+1. Go to **[nodejs.org](https://nodejs.org)**
+2. Click the **"LTS"** download button (the one labeled "Recommended For Most Users")
+3. Run the installer and follow the prompts — all defaults are fine
+
+To verify it worked, continue to Step 2 and it will be checked automatically.
+
+> **Already have Node.js?** You need version 20 or higher. Run `node --version` in a terminal to check.
+
+---
+
+### Step 2 — Download this tool
+
+**You do not need git or any developer tools.** Just download the ZIP:
+
+1. Click the green **"Code"** button at the top of this GitHub page
+2. Click **"Download ZIP"**
+3. Once downloaded, **unzip/extract** the folder somewhere easy to find (e.g. your Desktop or Documents)
+
+---
+
+### Step 3 — Open a terminal in the folder
+
+This is the only "technical" step. You just need to open a command window pointed at the folder you just extracted.
+
+<details>
+<summary><strong>macOS instructions</strong></summary>
+
+1. Open the extracted folder in Finder
+2. Right-click (or Control-click) on an empty area inside the folder
+3. Select **"New Terminal at Folder"** — if you don't see this option, go to **System Settings → Privacy & Security → Developer Tools** and enable Terminal, or just open **Terminal** from Applications and type:
+   ```
+   cd ~/Desktop/cpro-util
+   ```
+   (adjust the path to wherever you extracted it)
+
+</details>
+
+<details>
+<summary><strong>Windows instructions</strong></summary>
+
+1. Open the extracted folder in File Explorer
+2. Click in the **address bar** at the top (where it shows the folder path)
+3. Type `cmd` and press **Enter** — this opens Command Prompt already in the right folder
+
+</details>
+
+<details>
+<summary><strong>Linux instructions</strong></summary>
+
+Right-click inside the extracted folder and select **"Open Terminal Here"** (wording varies by distro), or open a terminal and `cd` to the folder path.
+
+</details>
+
+---
+
+### Step 4 — Run setup
+
+Paste the appropriate command into the terminal window and press Enter:
+
+**macOS / Linux:**
+```bash
+bash setup.sh
+```
+
+**Windows:**
+```cmd
+npm install && npm run build
+```
+
+The script will check your Node.js version, install all dependencies (including ffmpeg — no separate download needed), and build the tool. This takes about 1–2 minutes on a normal connection.
+
+---
+
+### Step 5 — Launch the web UI
+
+**macOS / Linux** — the setup script will ask if you want to launch now. Press `Y` and Enter.
+
+**Windows** (or any time after first setup):
+```cmd
+npm run serve
+```
+
+Your browser will open to **http://127.0.0.1:7777** with the full UI. You're done.
+
+---
+
+### Step 6 — (Optional) Enable YouTube/Vimeo URL downloads
+
+The tool can pull video directly from a URL if you have `yt-dlp` installed. Without it, local file and GIF conversion works fine.
+
+<details>
+<summary><strong>macOS — install yt-dlp</strong></summary>
+
+If you have Homebrew:
+```bash
+brew install yt-dlp
+```
+
+No Homebrew? Install it with Python:
+```bash
+pip3 install yt-dlp
+```
+
+No Python either? Download the binary directly from [github.com/yt-dlp/yt-dlp/releases](https://github.com/yt-dlp/yt-dlp/releases) — grab `yt-dlp_macos` and move it to `/usr/local/bin/yt-dlp`.
+
+</details>
+
+<details>
+<summary><strong>Windows — install yt-dlp</strong></summary>
+
+**Option A — winget (easiest):** Open Command Prompt and run:
+```cmd
+winget install yt-dlp
+```
+
+**Option B — manual:** Download `yt-dlp.exe` from [github.com/yt-dlp/yt-dlp/releases](https://github.com/yt-dlp/yt-dlp/releases) and place it in the same folder as the tool, or anywhere on your PATH.
+
+**Option C — pip:** If you have Python installed:
+```cmd
+pip install yt-dlp
+```
+
+</details>
+
+<details>
+<summary><strong>Linux — install yt-dlp</strong></summary>
+
+```bash
+pip install yt-dlp
+# or
+sudo curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp && sudo chmod +x /usr/local/bin/yt-dlp
+```
+
+</details>
+
+---
+
+### Returning after first setup
+
+You only need to do Steps 1–4 once. After that, just open a terminal in the folder and run:
+
+```bash
+npm run serve
+```
+
+---
+
+## How to use the web UI
+
+1. Open **http://127.0.0.1:7777** in your browser (it opens automatically on first launch)
+2. Drop a file onto the drop zone — or paste a YouTube/Vimeo URL into the URL field
+3. A **side-by-side preview** shows Cover / Contain / Stretch so you can pick the right fit
+4. Adjust fit, crop anchor, FPS, bitrate, and optional trim
+5. Click **Convert** — a progress bar tracks downloading (for URLs) and encoding separately
+6. Click **Download** when it finishes
+
+Upload the finished `.mp4` or `.png` at **[xpanel.finalmouse.com](https://xpanel.finalmouse.com)** → Keyboard → Skins → select a slot → Upload.
+
+---
+
+---
+
+## For developers
+
+If you want to use the CLI, install globally, or contribute:
 
 ```bash
 git clone https://github.com/your-username/cpro-util.git
 cd cpro-util
-bash setup.sh
-```
-
-Or with npm:
-
-```bash
-npm run setup
-```
-
----
-
-## Manual setup
-
-```bash
-npm install        # install dependencies (ffmpeg/ffprobe bundled here)
-npm run build      # compile TypeScript → dist/
-```
-
-Launch the web UI:
-
-```bash
-npm run serve      # opens http://127.0.0.1:7777 in your browser
-```
-
-Optional — install as a global `cpro` command:
-
-```bash
-npm link
+npm install && npm run build
+npm link          # optional: installs the `cpro` command globally
 cpro serve
 ```
 
@@ -69,7 +203,7 @@ The easiest way to use cpro-util. After running `npm run serve`:
 
 Upload the finished file at [xpanel.finalmouse.com](https://xpanel.finalmouse.com) → Keyboard → Skins → your slot.
 
-> **YouTube/Vimeo URLs** require `yt-dlp` installed on your system (`brew install yt-dlp`). Local file and GIF conversion works without it.
+> **YouTube/Vimeo URLs** require `yt-dlp` installed on your system. See the [Optional: Enable YouTube/Vimeo URL downloads](#step-6--optional-enable-youtubevimeo-url-downloads) section above. Local file and GIF conversion works without it.
 
 ---
 
