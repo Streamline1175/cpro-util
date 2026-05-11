@@ -1,0 +1,21 @@
+{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "1.0",
+  "FriendlyName": "CpSkinAPI",
+  "Description": "Dummy stub for the Finalmouse Centerpiece skin API. Exposes GetPositionByKeyIndex and key press/release event dispatchers. On a real keyboard the Finalmouse hardware SDK replaces these stubs; on desktop, keys are simulated via standard keyboard input so you can preview interactivity before uploading.",
+  "Category": "Finalmouse",
+  "CreatedBy": "cpro-util",
+  "CreatedByURL": "https://github.com/community/cpro-util",
+  "CanContainContent": false,
+  "IsBetaVersion": false,
+  "IsExperimentalVersion": false,
+  "Installed": false,
+  "Modules": [
+    {
+      "Name": "CpSkinAPI",
+      "Type": "Runtime",
+      "LoadingPhase": "Default"
+    }
+  ]
+}
