@@ -1,0 +1,751 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>cpro-util · AI Skin Generator</title>
+<style>
+:root {
+  color-scheme: dark;
+  --bg:      #0b0b0d;
+  --panel:   #141418;
+  --panel-2: #1a1a20;
+  --border:  #26262e;
+  --text:    #e7e7ea;
+  --muted:   #8a8a94;
+  --accent:  #6aa6ff;
+  --ok:      #4ade80;
+  --warn:    #facc15;
+  --err:     #f87171;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body {
+  margin: 0; padding: 0;
+  background: var(--bg); color: var(--text);
+  font: 14px/1.5 -apple-system, Inter, system-ui, sans-serif;
+  min-height: 100vh;
+}
+header {
+  position: sticky; top: 0; z-index: 10;
+  display: flex; align-items: center; gap: 16px;
+  padding: 10px 20px;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+}
+header h1 { margin: 0; font-size: 16px; letter-spacing: -0.02em; font-weight: 700; }
+header .sep { color: var(--border); }
+header .page-title { color: var(--muted); font-size: 14px; }
+header nav { margin-left: auto; display: flex; gap: 8px; }
+header nav a {
+  color: var(--muted); text-decoration: none; font-size: 13px;
+  padding: 4px 10px; border-radius: 6px; border: 1px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+header nav a:hover { color: var(--text); border-color: var(--border); }
+
+main {
+  max-width: 960px; margin: 0 auto;
+  padding: 32px 20px 64px;
+  display: flex; flex-direction: column; gap: 20px;
+}
+
+/* ── Form card ─────────────────────────────────────────────── */
+.card {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 10px; padding: 20px 24px;
+}
+.card-title {
+  font-size: 13px; font-weight: 600; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .06em;
+  margin: 0 0 14px;
+}
+label { display: block; margin-bottom: 6px; font-size: 13px; color: var(--muted); }
+textarea, input[type=text], select {
+  width: 100%; background: var(--panel-2); border: 1px solid var(--border);
+  color: var(--text); border-radius: 7px; padding: 10px 12px;
+  font: 13px/1.5 inherit; resize: vertical;
+  transition: border-color 0.15s;
+}
+textarea:focus, input[type=text]:focus, select:focus {
+  outline: none; border-color: var(--accent);
+}
+textarea { min-height: 108px; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 580px) { .field-row { grid-template-columns: 1fr; } }
+
+.hint { color: var(--muted); font-size: 11px; margin-top: 5px; }
+
+/* ── Effect presets ──────────────────────────────────────────── */
+.presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.preset-btn {
+  background: var(--panel-2); border: 1px solid var(--border);
+  color: var(--muted); border-radius: 20px; padding: 4px 12px;
+  font: 12px/1 inherit; cursor: pointer; transition: all 0.15s;
+  white-space: nowrap;
+}
+.preset-btn:hover { color: var(--text); border-color: var(--accent); }
+
+/* ── Ref pak upload ────────────────────────────────────────── */
+.pak-drop {
+  border: 1px dashed var(--border); border-radius: 7px;
+  padding: 12px 16px; text-align: center; cursor: pointer;
+  color: var(--muted); font-size: 12px; transition: border-color 0.15s;
+}
+.pak-drop:hover, .pak-drop.over { border-color: var(--accent); color: var(--text); }
+.pak-drop.loaded { border-color: var(--ok); color: var(--ok); }
+#input-pak { display: none; }
+
+/* ── Generate button ─────────────────────────────────────────── */
+.generate-btn {
+  width: 100%; padding: 12px; border-radius: 8px;
+  background: var(--accent); border: none; color: #fff;
+  font: 700 14px/1 inherit; cursor: pointer; letter-spacing: .01em;
+  transition: opacity 0.15s, background 0.15s;
+}
+.generate-btn:hover:not(:disabled) { background: #84b8ff; }
+.generate-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ── Status bar ─────────────────────────────────────────────── */
+#status-bar {
+  font-size: 12px; color: var(--muted); min-height: 18px;
+  display: flex; align-items: center; gap: 8px;
+}
+.spinner {
+  width: 14px; height: 14px; border: 2px solid var(--border);
+  border-top-color: var(--accent); border-radius: 50%;
+  animation: spin 0.7s linear infinite; flex-shrink: 0;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Output ──────────────────────────────────────────────────── */
+#output { display: flex; flex-direction: column; gap: 0; }
+
+.tab-bar {
+  display: flex; gap: 0; border-bottom: 1px solid var(--border);
+  padding: 0 4px;
+}
+.tab-btn {
+  background: none; border: none; color: var(--muted);
+  font: 13px/1 inherit; padding: 10px 16px; cursor: pointer;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+  transition: color 0.15s, border-color 0.15s;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+.tab-panel {
+  background: var(--panel); border: 1px solid var(--border);
+  border-top: none; border-radius: 0 0 10px 10px;
+  padding: 0;
+}
+.tab-panel .panel-toolbar {
+  display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+  padding: 10px 14px; border-bottom: 1px solid var(--border);
+}
+.tool-btn {
+  background: var(--panel-2); border: 1px solid var(--border);
+  color: var(--muted); border-radius: 6px; padding: 4px 10px;
+  font: 12px/1 inherit; cursor: pointer; transition: all 0.15s;
+}
+.tool-btn:hover { color: var(--text); border-color: var(--accent); }
+.tool-btn.copied { color: var(--ok); border-color: var(--ok); }
+
+pre.code-view {
+  margin: 0; padding: 16px 18px;
+  font: 12.5px/1.6 ui-monospace, "Cascadia Code", "Fira Code", monospace;
+  color: #c9d1d9; overflow-x: auto; white-space: pre;
+  max-height: 520px; overflow-y: auto;
+}
+.concept-view {
+  padding: 18px 22px; font-size: 13.5px; line-height: 1.8;
+  max-height: 520px; overflow-y: auto;
+}
+.concept-view h1, .concept-view h2, .concept-view h3 {
+  margin: 1.2em 0 0.4em; color: var(--text);
+}
+.concept-view h1 { font-size: 17px; }
+.concept-view h2 { font-size: 15px; color: var(--accent); }
+.concept-view h3 { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.concept-view p  { margin: 0 0 0.8em; color: var(--text); }
+.concept-view ul, .concept-view ol { margin: 0 0 0.8em; padding-left: 20px; }
+.concept-view li { color: var(--muted); margin-bottom: 3px; }
+.concept-view code {
+  background: var(--panel-2); border: 1px solid var(--border);
+  padding: 1px 5px; border-radius: 3px; font: 12px ui-monospace, monospace;
+  color: var(--accent);
+}
+.concept-view pre {
+  background: var(--panel-2); border: 1px solid var(--border);
+  padding: 10px 14px; border-radius: 6px; overflow-x: auto;
+  font: 12px/1.5 ui-monospace, monospace; margin: 0 0 1em;
+}
+
+/* live streaming cursor */
+.stream-cursor::after {
+  content: "▋"; animation: blink 0.8s step-end infinite;
+  color: var(--accent); font-weight: 300;
+}
+@keyframes blink { 50% { opacity: 0; } }
+
+/* ── Usage badge ─────────────────────────────────────────────── */
+.usage-row {
+  display: flex; gap: 12px; flex-wrap: wrap;
+  padding: 10px 14px; border-top: 1px solid var(--border);
+  font-size: 11px; color: var(--muted);
+}
+.usage-item span { color: var(--text); font-family: ui-monospace, monospace; }
+
+/* ── Download + deploy row ───────────────────────────────────── */
+.action-row {
+  display: flex; gap: 10px; align-items: center;
+  padding: 12px 14px; border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.download-btn {
+  background: var(--panel-2); border: 1px solid var(--border);
+  color: var(--text); border-radius: 7px; padding: 7px 16px;
+  font: 13px/1 inherit; cursor: pointer; transition: all 0.15s;
+}
+.download-btn:hover { border-color: var(--ok); color: var(--ok); }
+.action-hint { font-size: 11px; color: var(--muted); margin-left: auto; }
+
+/* ── API key missing banner ─────────────────────────────────── */
+.api-banner {
+  background: #2a1a0a; border: 1px solid #6b3a0f;
+  border-radius: 8px; padding: 12px 16px;
+  font-size: 13px; color: #fbbf24;
+}
+.api-banner code {
+  background: #1a0f04; padding: 2px 6px; border-radius: 3px;
+  font-family: ui-monospace, monospace;
+}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>cpro-util</h1>
+  <span class="sep">·</span>
+  <span class="page-title">AI Skin Generator</span>
+  <nav>
+    <a href="/interactive.html">⌨ Preview</a>
+    <a href="/">← Converter</a>
+  </nav>
+</header>
+
+<main>
+
+  <!-- API key check banner (shown if key is missing) -->
+  <div id="api-banner" class="api-banner" hidden>
+    <strong>ANTHROPIC_API_KEY not set.</strong>
+    The server needs this environment variable to call Claude.
+    Start the server with: <code>ANTHROPIC_API_KEY=sk-ant-… npm run serve</code>
+  </div>
+
+  <!-- Prompt form -->
+  <div class="card">
+    <p class="card-title">Describe your interactive skin effect</p>
+
+    <!-- Quick presets -->
+    <div class="presets" id="presets">
+      <button class="preset-btn" data-prompt="Neon plasma shockwave that expands outward from every keypress and ripples across nearby keys">Plasma wave</button>
+      <button class="preset-btn" data-prompt="Tiny golden sparks burst upward from each key and drift with gravity, leaving glowing trails">Sparks</button>
+      <button class="preset-btn" data-prompt="Ice shards shatter outward from each keypress, rotating slowly and fading into mist">Ice shards</button>
+      <button class="preset-btn" data-prompt="Electric lightning tendrils arc upward from each key in brilliant blue-white bolts">Lightning</button>
+      <button class="preset-btn" data-prompt="Deep-space cosmic dust — purple and blue particles drift upward like galaxies forming on every keystroke">Cosmic dust</button>
+      <button class="preset-btn" data-prompt="Cherry blossom petals flutter upward from each keypress, rotating with gentle gravity">Sakura petals</button>
+      <button class="preset-btn" data-prompt="Cyberpunk glitch: green matrix-rain characters fall down from each key and dissolve">Matrix rain</button>
+    </div>
+
+    <label for="prompt-text">Effect description</label>
+    <textarea id="prompt-text" placeholder="e.g. Molten lava cracks spread from each keypress revealing glowing orange magma underneath, with embers drifting upward…"></textarea>
+
+    <div class="field-row" style="margin-top:12px">
+      <div>
+        <label for="skin-name">Skin name <span style="font-size:11px;font-weight:400">(no spaces)</span></label>
+        <input type="text" id="skin-name" placeholder="e.g. PlasmaWave" />
+      </div>
+      <div>
+        <label for="model-select">Claude model</label>
+        <select id="model-select">
+          <option value="claude-opus-4-7" selected>claude-opus-4-7 (best quality)</option>
+          <option value="claude-sonnet-4-6">claude-sonnet-4-6 (faster)</option>
+          <option value="claude-haiku-4-5-20251001">claude-haiku-4-5-20251001 (fastest)</option>
+        </select>
+      </div>
+    </div>
+
+    <div style="margin-top:12px">
+      <label>Reference .pak <span style="font-size:11px;font-weight:400">(optional — use an existing skin as structural inspiration)</span></label>
+      <div class="pak-drop" id="pak-drop" title="Drop a .pak file here or click to browse">
+        <span id="pak-drop-label">Drop a .pak file here or click to browse</span>
+      </div>
+      <input type="file" id="input-pak" accept=".pak" />
+    </div>
+
+    <div style="margin-top:16px">
+      <button class="generate-btn" id="btn-generate">Generate skin with Claude</button>
+    </div>
+
+    <div id="status-bar" style="margin-top:10px"></div>
+  </div>
+
+  <!-- Output (hidden until generation starts) -->
+  <div id="output" hidden>
+
+    <!-- Tab bar + panels -->
+    <div class="tab-bar">
+      <button class="tab-btn active" data-tab="concept">Skin Concept</button>
+      <button class="tab-btn" data-tab="script">Python Setup Script</button>
+      <button class="tab-btn" data-tab="params">Parameters JSON</button>
+      <button class="tab-btn" data-tab="raw">Raw Response</button>
+    </div>
+
+    <div class="tab-panel">
+
+      <!-- Concept tab -->
+      <div id="tab-concept">
+        <div class="panel-toolbar">
+          <button class="tool-btn" data-copy="concept">Copy</button>
+        </div>
+        <div class="concept-view" id="concept-view"></div>
+      </div>
+
+      <!-- Script tab -->
+      <div id="tab-script" hidden>
+        <div class="panel-toolbar">
+          <button class="tool-btn" data-copy="script">Copy</button>
+        </div>
+        <pre class="code-view" id="script-view"></pre>
+      </div>
+
+      <!-- Params tab -->
+      <div id="tab-params" hidden>
+        <div class="panel-toolbar">
+          <button class="tool-btn" data-copy="params">Copy</button>
+        </div>
+        <pre class="code-view" id="params-view"></pre>
+      </div>
+
+      <!-- Raw tab -->
+      <div id="tab-raw" hidden>
+        <div class="panel-toolbar">
+          <button class="tool-btn" data-copy="raw">Copy</button>
+        </div>
+        <pre class="code-view stream-cursor" id="raw-view"></pre>
+      </div>
+
+      <!-- Usage row -->
+      <div class="usage-row" id="usage-row" hidden>
+        <div class="usage-item">Input tokens: <span id="u-input">—</span></div>
+        <div class="usage-item">Output tokens: <span id="u-output">—</span></div>
+        <div class="usage-item">Cache reads: <span id="u-cache">—</span></div>
+      </div>
+
+      <!-- Download + deploy -->
+      <div class="action-row" id="action-row" hidden>
+        <button class="download-btn" id="btn-download-zip">⬇ Download project ZIP</button>
+        <span class="action-hint">Unzip → open .uproject in UE 4.27.2 → run Python/setup_interactive.py in the editor console</span>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- How it works card -->
+  <details style="font-size:13px">
+    <summary style="cursor:pointer;color:var(--muted);padding:4px;user-select:none">
+      How this works ▸
+    </summary>
+    <div class="card" style="margin-top:10px;display:flex;flex-direction:column;gap:14px;font-size:13px;line-height:1.8">
+      <p style="margin:0">
+        <strong>1. Describe</strong> the visual effect you want in plain English.
+        Claude (Anthropic) generates a complete <code>setup_interactive.py</code> that
+        you run once inside the UE 4.27.2 editor console — it scaffolds all the Blueprints,
+        Niagara particle systems, and levels for you automatically.
+      </p>
+      <p style="margin:0">
+        <strong>2. Author</strong> Open the generated UE project, run the Python script,
+        then tweak the Niagara system in the editor to match the generated concept.
+        The script logs exact module settings to the UE output log.
+      </p>
+      <p style="margin:0">
+        <strong>3. Cook &amp; upload</strong> from your terminal:
+      </p>
+      <pre style="margin:0;background:var(--panel-2);border:1px solid var(--border);border-radius:6px;padding:10px 14px;font-size:12px;overflow-x:auto">cpro ue pak cook  ./my-skin-project
+cpro ue pak upload dist/skin.pak --slot 0</pre>
+      <p style="margin:0">
+        <strong>VS Code users:</strong> open the Command Palette
+        (<kbd>Ctrl+Shift+P</kbd>) and run <em>cpro: Generate Interactive Skin</em>
+        to launch this workflow directly from the editor.
+      </p>
+    </div>
+  </details>
+
+</main>
+
+<script>
+// ── State ─────────────────────────────────────────────────────
+let rawText    = '';
+let setupPy    = '';
+let conceptMd  = '';
+let paramsJson = '';
+let skinName   = 'GeneratedSkin';
+let pakFile    = null;  // File object
+let generating = false;
+
+// ── API key check ─────────────────────────────────────────────
+fetch('/api/generate-status').then(r => r.json()).then(d => {
+  if (!d.hasApiKey) document.getElementById('api-banner').hidden = false;
+}).catch(() => {});
+
+// ── Preset buttons ────────────────────────────────────────────
+document.querySelectorAll('.preset-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.getElementById('prompt-text').value = btn.dataset.prompt;
+    document.getElementById('prompt-text').focus();
+  });
+});
+
+// ── Reference pak drag-and-drop / click ──────────────────────
+const pakDrop  = document.getElementById('pak-drop');
+const pakInput = document.getElementById('input-pak');
+
+pakDrop.addEventListener('click', () => pakInput.click());
+pakInput.addEventListener('change', e => setPakFile(e.target.files[0]));
+
+pakDrop.addEventListener('dragover', e => { e.preventDefault(); pakDrop.classList.add('over'); });
+pakDrop.addEventListener('dragleave', () => pakDrop.classList.remove('over'));
+pakDrop.addEventListener('drop', e => {
+  e.preventDefault();
+  pakDrop.classList.remove('over');
+  const f = e.dataTransfer.files[0];
+  if (f && f.name.endsWith('.pak')) setPakFile(f);
+});
+
+function setPakFile(f) {
+  if (!f) return;
+  pakFile = f;
+  document.getElementById('pak-drop-label').textContent = `✓ ${f.name} (${(f.size / 1024 / 1024).toFixed(1)} MB)`;
+  pakDrop.classList.add('loaded');
+}
+
+// ── Tabs ──────────────────────────────────────────────────────
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const tab = btn.dataset.tab;
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('[id^="tab-"]').forEach(p => p.hidden = true);
+    document.getElementById('tab-' + tab).hidden = false;
+  });
+});
+
+// ── Copy buttons ──────────────────────────────────────────────
+document.querySelectorAll('[data-copy]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const which = btn.dataset.copy;
+    const texts = { concept: conceptMd, script: setupPy, params: paramsJson, raw: rawText };
+    navigator.clipboard.writeText(texts[which] ?? '').then(() => {
+      btn.textContent = 'Copied!';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1800);
+    });
+  });
+});
+
+// ── Generate ──────────────────────────────────────────────────
+document.getElementById('btn-generate').addEventListener('click', startGenerate);
+document.getElementById('prompt-text').addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') startGenerate();
+});
+
+async function startGenerate() {
+  if (generating) return;
+  const prompt = document.getElementById('prompt-text').value.trim();
+  if (!prompt) { document.getElementById('prompt-text').focus(); return; }
+
+  generating = true;
+  rawText = setupPy = conceptMd = paramsJson = '';
+  skinName = 'GeneratedSkin';
+
+  const btn = document.getElementById('btn-generate');
+  btn.disabled = true;
+  btn.textContent = 'Generating…';
+
+  document.getElementById('output').hidden = false;
+  document.getElementById('usage-row').hidden = true;
+  document.getElementById('action-row').hidden = true;
+
+  const rawView = document.getElementById('raw-view');
+  rawView.textContent = '';
+  rawView.classList.add('stream-cursor');
+
+  document.getElementById('concept-view').innerHTML = '';
+  document.getElementById('script-view').textContent = '';
+  document.getElementById('params-view').textContent = '';
+
+  setStatus('spinner', 'Connecting to Claude…');
+
+  // Activate raw tab during streaming
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelector('[data-tab="raw"]').classList.add('active');
+  document.querySelectorAll('[id^="tab-"]').forEach(p => p.hidden = true);
+  document.getElementById('tab-raw').hidden = false;
+
+  const body = {
+    prompt,
+    skinName: document.getElementById('skin-name').value.trim() || undefined,
+    model: document.getElementById('model-select').value,
+    refPakBase64: undefined,
+  };
+
+  if (pakFile) {
+    const buf = await readFileAsBase64(pakFile);
+    body.refPakBase64 = buf;
+  }
+
+  try {
+    const resp = await fetch('/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ error: resp.statusText }));
+      throw new Error(err.error ?? 'Server error');
+    }
+
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+
+      // Parse SSE lines
+      const lines = buf.split('\n');
+      buf = lines.pop(); // keep incomplete line
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        let evt;
+        try { evt = JSON.parse(line.slice(6)); } catch { continue; }
+        handleEvent(evt);
+      }
+    }
+  } catch (err) {
+    setStatus('error', err.message);
+  }
+
+  rawView.classList.remove('stream-cursor');
+  btn.disabled = false;
+  btn.textContent = 'Generate skin with Claude';
+  generating = false;
+}
+
+function handleEvent(evt) {
+  if (evt.type === 'status') {
+    setStatus('spinner', evt.text);
+  } else if (evt.type === 'token') {
+    rawText += evt.text;
+    const rawView = document.getElementById('raw-view');
+    rawView.textContent = rawText;
+    rawView.scrollTop = rawView.scrollHeight;
+  } else if (evt.type === 'done') {
+    skinName   = evt.skinName  ?? skinName;
+    setupPy    = evt.setupPy   ?? '';
+    conceptMd  = evt.conceptMd ?? '';
+    paramsJson = evt.paramsJson ?? '';
+
+    document.getElementById('script-view').textContent = setupPy;
+    document.getElementById('params-view').textContent = paramsJson;
+    renderMarkdown(conceptMd, document.getElementById('concept-view'));
+
+    if (evt.usage) {
+      document.getElementById('u-input').textContent  = evt.usage.inputTokens ?? '—';
+      document.getElementById('u-output').textContent = evt.usage.outputTokens ?? '—';
+      document.getElementById('u-cache').textContent  = evt.usage.cacheReadTokens ?? '0';
+      document.getElementById('usage-row').hidden = false;
+    }
+
+    document.getElementById('action-row').hidden = false;
+
+    // Switch to concept tab
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelector('[data-tab="concept"]').classList.add('active');
+    document.querySelectorAll('[id^="tab-"]').forEach(p => p.hidden = true);
+    document.getElementById('tab-concept').hidden = false;
+
+    setStatus('ok', `✓ "${skinName}" generated successfully`);
+  } else if (evt.type === 'error') {
+    setStatus('error', evt.error);
+  }
+}
+
+// ── Download ZIP ──────────────────────────────────────────────
+document.getElementById('btn-download-zip').addEventListener('click', async () => {
+  if (!setupPy && !conceptMd) return;
+  const name = skinName.replace(/[^a-zA-Z0-9_-]/g, '_') || 'GeneratedSkin';
+
+  // Build a minimal ZIP in JS (DEFLATE-less store mode)
+  const files = [
+    { name: 'Python/setup_interactive.py', text: setupPy },
+    { name: 'skin_concept.md',             text: conceptMd },
+    { name: 'skin_params.json',            text: paramsJson },
+  ];
+
+  const blob = buildZip(files);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `cpro-skin-${name}.zip`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+});
+
+// ── Status helper ─────────────────────────────────────────────
+function setStatus(kind, text) {
+  const bar = document.getElementById('status-bar');
+  if (kind === 'spinner') {
+    bar.innerHTML = `<div class="spinner"></div><span>${escHtml(text)}</span>`;
+  } else if (kind === 'ok') {
+    bar.innerHTML = `<span style="color:var(--ok)">${escHtml(text)}</span>`;
+  } else if (kind === 'error') {
+    bar.innerHTML = `<span style="color:var(--err)">Error: ${escHtml(text)}</span>`;
+  } else {
+    bar.textContent = text;
+  }
+}
+
+// ── Minimal markdown → HTML ───────────────────────────────────
+function renderMarkdown(md, el) {
+  let html = escHtml(md)
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/^- (.+)$/gm, '<li>$1</li>')
+    .replace(/(<li>[\s\S]+?<\/li>)(?=\n|$)/g, '<ul>$1</ul>')
+    .replace(/\n\n/g, '</p><p>')
+    .replace(/\n/g, '<br>');
+  el.innerHTML = '<p>' + html + '</p>';
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Tiny ZIP builder (store mode, no compression) ─────────────
+function buildZip(files) {
+  const enc = new TextEncoder();
+  const parts = [];
+  const centralDir = [];
+  let offset = 0;
+
+  for (const f of files) {
+    const nameBytes = enc.encode(f.name);
+    const dataBytes = enc.encode(f.text);
+    const crc = crc32(dataBytes);
+
+    const local = new Uint8Array(30 + nameBytes.length + dataBytes.length);
+    const v = new DataView(local.buffer);
+    v.setUint32(0,  0x04034b50, true);  // local file header sig
+    v.setUint16(4,  20, true);           // version needed
+    v.setUint16(6,  0,  true);           // flags
+    v.setUint16(8,  0,  true);           // no compression
+    v.setUint16(10, 0,  true);           // mod time
+    v.setUint16(12, 0,  true);           // mod date
+    v.setUint32(14, crc, true);
+    v.setUint32(18, dataBytes.length, true);
+    v.setUint32(22, dataBytes.length, true);
+    v.setUint16(26, nameBytes.length, true);
+    v.setUint16(28, 0, true);            // extra len
+    local.set(nameBytes, 30);
+    local.set(dataBytes, 30 + nameBytes.length);
+
+    // Central directory entry
+    const cd = new Uint8Array(46 + nameBytes.length);
+    const cv = new DataView(cd.buffer);
+    cv.setUint32(0,  0x02014b50, true);
+    cv.setUint16(4,  20, true);
+    cv.setUint16(6,  20, true);
+    cv.setUint16(8,  0,  true);
+    cv.setUint16(10, 0,  true);
+    cv.setUint16(12, 0,  true);
+    cv.setUint16(14, 0,  true);
+    cv.setUint32(16, crc, true);
+    cv.setUint32(20, dataBytes.length, true);
+    cv.setUint32(24, dataBytes.length, true);
+    cv.setUint16(28, nameBytes.length, true);
+    cv.setUint16(30, 0, true);
+    cv.setUint16(32, 0, true);
+    cv.setUint16(34, 0, true);
+    cv.setUint16(36, 0, true);
+    cv.setUint32(38, 0, true);
+    cv.setUint32(42, offset, true);
+    cd.set(nameBytes, 46);
+
+    parts.push(local);
+    centralDir.push(cd);
+    offset += local.length;
+  }
+
+  const cdBytes = concat(centralDir);
+  const eocd = new Uint8Array(22);
+  const ev = new DataView(eocd.buffer);
+  ev.setUint32(0,  0x06054b50, true);
+  ev.setUint16(4,  0, true);
+  ev.setUint16(6,  0, true);
+  ev.setUint16(8,  centralDir.length, true);
+  ev.setUint16(10, centralDir.length, true);
+  ev.setUint32(12, cdBytes.length, true);
+  ev.setUint32(16, offset, true);
+  ev.setUint16(20, 0, true);
+
+  return new Blob([concat(parts), cdBytes, eocd], { type: 'application/zip' });
+}
+
+function concat(arrays) {
+  const total = arrays.reduce((s, a) => s + a.length, 0);
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const a of arrays) { out.set(a, off); off += a.length; }
+  return out;
+}
+
+function crc32(data) {
+  let crc = 0xffffffff;
+  const table = crc32.table || (crc32.table = (() => {
+    const t = new Uint32Array(256);
+    for (let i = 0; i < 256; i++) {
+      let c = i;
+      for (let k = 0; k < 8; k++) c = (c & 1) ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      t[i] = c;
+    }
+    return t;
+  })());
+  for (let i = 0; i < data.length; i++)
+    crc = table[(crc ^ data[i]) & 0xff] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+async function readFileAsBase64(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => {
+      const dataUrl = r.result;
+      res(dataUrl.split(',')[1]);
+    };
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+}
+</script>
+</body>
+</html>

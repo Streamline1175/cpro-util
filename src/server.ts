@@ -14,6 +14,8 @@ import { convertImage } from "./lib/convert-image.js";
 import { convertVideo } from "./lib/convert-video.js";
 import { DEFAULT_OPTIONS, SPECS, clampFps, clampBitrateMbps, parseTimeToSeconds, type FitStrategy } from "./lib/specs.js";
 import { fetchVideoFromUrl, isUrl } from "./lib/fetch-url.js";
+import { generateSkinStream } from "./lib/ai-generate.js";
+import { inspectPak } from "./lib/pak-inspect.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -60,6 +62,10 @@ export async function startServer(opts: ServerOptions) {
   });
 
   app.get("/api/specs", async () => SPECS);
+
+  app.get("/api/generate-status", async () => ({
+    hasApiKey: !!process.env.ANTHROPIC_API_KEY,
+  }));
 
   // Key layout data — same positions as GetPositionByKeyIndex() in CpSkinAPIBPLibrary.cpp
   app.get("/api/keys", async () => {
@@ -311,6 +317,71 @@ export async function startServer(opts: ServerOptions) {
     await mkdir(inDir, { recursive: true });
     await mkdir(outDir, { recursive: true });
     return { ok: true };
+  });
+
+  // ── AI skin generator (SSE streaming) ──────────────────────────────────
+  app.post("/api/generate", async (req, reply) => {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return reply.code(400).send({ ok: false, error: "ANTHROPIC_API_KEY is not set on the server" });
+    }
+
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+    if (!prompt) return reply.code(400).send({ ok: false, error: "prompt is required" });
+
+    const skinName = typeof body.skinName === "string" ? body.skinName.trim() || undefined : undefined;
+    const model = typeof body.model === "string" ? body.model.trim() || "claude-opus-4-7" : "claude-opus-4-7";
+
+    // Optional base64-encoded reference pak
+    let referencePak;
+    if (typeof body.refPakBase64 === "string" && body.refPakBase64) {
+      try {
+        const buf = Buffer.from(body.refPakBase64, "base64");
+        const tmpPak = join(workDir, "in", `ref-${randomUUID()}.pak`);
+        await writeFile(tmpPak, buf);
+        referencePak = await inspectPak(tmpPak);
+      } catch {
+        // ignore bad pak — continue without reference
+      }
+    }
+
+    reply.hijack();
+    const raw = reply.raw;
+    raw.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+
+    const send = (obj: Record<string, unknown>) =>
+      raw.write(`data: ${JSON.stringify(obj)}\n\n`);
+
+    send({ type: "status", text: `Connecting to Claude (${model})…` });
+
+    try {
+      const result = await generateSkinStream({
+        prompt,
+        skinName,
+        referencePak,
+        model,
+        onProgress: (text) => send({ type: "status", text }),
+        onToken: (text) => send({ type: "token", text }),
+      });
+
+      send({
+        type: "done",
+        skinName: result.skinName,
+        setupPy: result.setupPy,
+        conceptMd: result.conceptMd,
+        paramsJson: result.paramsJson,
+        usage: result.usage,
+      });
+    } catch (err: any) {
+      send({ type: "error", error: String(err?.message ?? err) });
+    }
+
+    raw.end();
   });
 
   await app.listen({ port: opts.port, host: "127.0.0.1" });

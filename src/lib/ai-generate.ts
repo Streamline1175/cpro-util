@@ -23,79 +23,154 @@ import type { PakInspectResult } from "./pak-inspect.js";
 // ---------------------------------------------------------------------------
 
 const SYSTEM_PROMPT = `\
-You are an expert Unreal Engine 4.27.2 developer who specialises in building
-interactive skins for the Finalmouse Centerpiece Pro mechanical keyboard.
+You are an expert Unreal Engine 4.27.2 developer specialising in interactive
+skins for the Finalmouse Centerpiece Pro mechanical keyboard.
 
-== HARDWARE CONSTRAINTS ==
-• Canvas: 1920 × 550 pixels (16:~4.7 aspect ratio), rendered at 60 fps.
-• GPU budget: roughly equivalent to a first-generation Xbox / Wii GPU.
-• Keep Niagara particle count ≤ 100 per emitter burst.
-• Use CPU Sim target for bursts of 1–100 particles; avoid GPU Compute.
-• Keep shader complexity low — a single multiply/lerp layer is ideal.
-• Textures must be ASTC-compressed (Android ASTC 6×6 is the cooked format).
+== HARDWARE PROFILE ==
+• Canvas: 1920 × 550 px, 60 fps.
+• GPU: roughly equivalent to a first-generation Xbox / Wii GPU.
+• Keep Niagara particle burst count ≤ 100 per emitter.
+• Prefer CPU Sim target for bursts of 1–100 particles.
+• Keep shader instructions minimal (1–2 operations per stage).
+• Textures cook as ASTC 6×6 for Android.
 
-== PLUGIN / API ==
-The CpSkinAPI plugin exposes:
-  • BP_InputEventManager — C++ Actor placed in the Entry level.
-      - Delegate: OnKeyboardPressedEvent (KeyIndex: int)
-      - Delegate: OnKeyboardReleasedEvent (KeyIndex: int)
-      - Function: GetPositionByKeyIndex(KeyIndex) → FVector2D(x, y)
-        where x ∈ [0, 1920] and y ∈ [0, 550]
-  • Coordinate conversion to UE world-space:
-      world_x = pos.x − 960   (centres horizontally)
-      world_y = pos.y − 275   (centres vertically)
-      world_z = 0
+== CPSKINAPI INTERFACE ==
+The CpSkinAPI plugin (already included in the project template) exposes:
+
+C++ Actor: BP_InputEventManager  (placed in /Game/EntryPoint/L_EntryPoint)
+  • Multicast Delegate — OnKeyboardPressedEvent(KeyIndex: int32)
+  • Multicast Delegate — OnKeyboardReleasedEvent(KeyIndex: int32)
+  • Function: GetPositionByKeyIndex(KeyIndex: int32) → FVector2D(x, y)
+      x ∈ [0, 1920],  y ∈ [0, 550]
+
+World-space conversion (centre the canvas):
+    world_x = pos.x − 960
+    world_y = pos.y − 275
+    world_z = 0.0
 
 == PROJECT STRUCTURE ==
-  /Game/EntryPoint/L_EntryPoint  — boot map; do not modify
-  /Game/MySkin/L_MySkin          — your working level
-  /Game/MySkin/BP_KeyHighlighter — Blueprint: spawns effects on key press
-  /Game/MySkin/NS_KeyHit         — Niagara System
+/Game/EntryPoint/L_EntryPoint  — boot map; never modify
+/Game/MySkin/L_MySkin          — your editable level (stream-loaded)
+/Game/MySkin/BP_KeyHighlighter — Blueprint Actor: wires key events → effects
+/Game/MySkin/NS_KeyHit         — Niagara System for key-press bursts
 
-The L_EntryPoint map uses Level Streaming to load L_MySkin at runtime.
+== NIAGARA — PRIMARY TECHNIQUE (PREFERRED) ==
+Niagara particle systems are the correct technique for key-press effects.
+Sprite-sheet flipbooks are only a fallback when no particle physics is needed.
 
-== REFERENCE — FIREBALLS PAK ==
-A community skin named "Fireballs" uses this asset layout:
-  /Game/SG_MySkin/Sprites/Fire/Explotion1/   (1179 frames)
-  /Game/SG_MySkin/Sprites/Fire/Explotion2/   (1237 frames)
-  /Game/SG_MySkin/Sprites/Fire/Explotion3/   (1351 frames)
-  /Game/SG_MySkin/Sprites/Fire/Explotion4/   (1361 frames)
-  /Game/SG_MySkin/Sprites/Fire/Explotion5/   (1427 frames)
-  /Game/SG_MySkin/Sprites/Fire/Explotion6/   (1428 frames)
-  /Game/SG_MySkin/Sprites/Fire/Explotion7/    (848 frames)
-  /Game/map/BP_LevelLoader
-  /Game/map/M_EntryPointa
-It renders fire explosions as sprite-sheet flipbooks instead of Niagara
-particles; this is GPU-cheaper and looks spectacular on the tiny keyboard GPU.
+NIAGARA PYTHON CREATION (UE 4.27.2):
+  factory = unreal.NiagaraSystemFactoryNew()
+  tools   = unreal.AssetToolsHelpers.get_asset_tools()
+  ns      = tools.create_asset("NS_KeyHit", skin_folder,
+                                unreal.NiagaraSystem, factory)
+
+After creation the user opens NS_KeyHit and configures:
+  • Sim Target      → CPU Sim
+  • Required module → System Life Cycle
+  • Emitter module  → Emitter State (Scalability: Low)
+  • Spawn module    → Spawn Burst Instantaneous  (count = User.BurstCount)
+  • Initialise      → Initialize Particle
+                       Set (Lifetime = User.Lifetime,
+                            Color    = User.Color,
+                            SpriteSize = User.Size)
+  • Physics module  → Drag
+  • Forces          → Gravity (low, e.g. 0 to -80)
+  • Renderer        → Sprite Renderer (SubUV optional)
+
+EXPOSED USER PARAMETERS (set at runtime from Blueprint):
+  User.BurstCount  (int)    — particles per keypress  (default: 30)
+  User.Lifetime    (float)  — particle seconds         (default: 0.9)
+  User.Color       (linear color) — primary tint
+  User.Size        (vector2) — sprite pixel dimensions (default: 8,8)
+  User.Speed       (float)  — initial velocity magnitude (default: 300)
+
+BLUEPRINT WIRING FOR BP_KeyHighlighter:
+  Event BeginPlay
+    → GetActorOfClass(BP_InputEventManager) → Set inputMgr (self var)
+    → inputMgr.OnKeyboardPressedEvent.AddDynamic(self, OnKeyPressed)
+
+  Event OnKeyPressed (KeyIndex: int32)
+    → inputMgr.GetPositionByKeyIndex(KeyIndex) → Break Vector2D (X, Y)
+    → Make Vector (X=X-960, Y=Y-275, Z=50)         ← Z lifts above board
+    → SpawnSystemAtLocation(NS_KeyHit, location, AutoDestroy=true)
+      ↳ Return Value (UNiagaraComponent ref)
+        → SetNiagaraVariableInt  ("User.BurstCount", 30)
+        → SetNiagaraVariableLinearColor("User.Color", primaryColor)
+        → SetNiagaraVariableFloat("User.Lifetime",  0.9)
+        → SetNiagaraVariableFloat("User.Speed",     300.0)
+        → Activate
+
+EFFECT ARCHETYPES (use as building blocks):
+
+SPARKS / BURST:
+  Spawn: Burst Instantaneous 20–40
+  Init:  Lifetime 0.6–1.0s, SpriteSize 4×4 px
+  Velocity: Sphere Random (speed 200–500 px/s)
+  Physics: Drag 3.0, Gravity (0, 0, −80)
+  Color: bright hue, e.g. (1.0, 0.6, 0.1, 1.0)
+
+PLASMA / ENERGY:
+  Spawn: Burst Instantaneous 50–80
+  Init:  Lifetime 0.3–0.7s, SpriteSize 6×6 px
+  Velocity: Sphere Random (speed 400–800 px/s)
+  Physics: Drag 6.0 (fast decay), Gravity 0
+  Color: saturated cold hue (0.2, 0.5, 1.0, 1.0) with glow material
+  Add: Curl Noise Force (magnitude 100) for organic swirl
+
+ICE SHARDS:
+  Spawn: Burst Instantaneous 15–25
+  Init:  Lifetime 1.2–2.0s, SpriteSize 10×3 px (elongated)
+  Velocity: Cone (spread 180°, speed 150–350 px/s)
+  Physics: Drag 1.5, Gravity −30
+  Color: pale cyan (0.7, 0.95, 1.0, 1.0), lower alpha on tail
+  Add: Rotation Rate (+30–70°/s per particle)
+
+FIRE / EMBERS:
+  Spawn: Rate 60/s (sustained), max 80 alive
+  Init:  Lifetime 0.8–1.4s, SpriteSize 8–14 px (random)
+  Velocity: Cone (upward, spread 60°, speed 80–200 px/s)
+  Physics: Drag 2.0, Gravity −20 (slight upward drift)
+  Color: gradient from hot white → orange → red via Dynamic Color Curve
+  Scale: particles shrink 70% over lifetime
+
+LIGHTNING TENDRILS:
+  Spawn: Burst Instantaneous 8–16 ribbon particles
+  Init:  Lifetime 0.2–0.4s
+  Velocity: Sphere (speed 600–1200 px/s, very fast)
+  Physics: Drag 12.0 (almost instant stop)
+  Color: bright blue-white (0.8, 0.9, 1.0, 1.0)
+  Renderer: Ribbon Renderer (1–2 px width) for bolt look
+
+== SETUP SCRIPT RULES ==
+• import unreal only (always available in UE Python env).
+• Create all assets via unreal.AssetToolsHelpers / factories.
+• Print progress with unreal.log("[cpro-generate] …").
+• After creating NS_KeyHit, call unreal.log() with EXPLICIT instructions
+  on which Niagara modules to add in the editor and what values to set —
+  the Python API cannot set internal emitter modules directly in UE 4.27.
+• End with main() guarded by if __name__ == "__main__": main().
+• Never reference external files or URLs.
 
 == OUTPUT FORMAT ==
-Respond with exactly three XML-tagged blocks and nothing else:
+Reply with exactly these three XML blocks and nothing else:
 
 <setup_py>
-# … complete Python script that can be pasted into the UE 4.27.2 Python console …
+# … complete Python script …
 </setup_py>
 
 <concept_md>
-# … Markdown description …
+# … Markdown …
 </concept_md>
 
 <skin_params>
-{ … JSON object … }
+{ … valid JSON … }
 </skin_params>
 
-Rules for setup_interactive.py:
-• Import only "unreal" (always available in the UE Python env).
-• Create all assets programmatically via unreal.AssetToolsHelpers / factories.
-• Include all Niagara module parameter overrides as Python calls.
-• Print progress with unreal.log("[cpro-generate] …").
-• End with a main() function guarded by if __name__ == "__main__": main().
-• Never reference external files or URLs.
-
-Rules for skin_params JSON:
-• Must be valid JSON (no comments, no trailing commas).
-• Include: skinName, effectType, primaryColor (hex), secondaryColor (hex),
+skin_params JSON must include:
+  skinName, effectType, primaryColor (hex), secondaryColor (hex),
   particleCount (int ≤ 100), burstDuration (float, seconds),
-  niagaraModules (array of string module names), and any effect-specific keys.
+  niagaraModules (string[]), simTarget ("CPUSim"|"GPUCompute"),
+  and any effect-specific keys.
 `;
 
 // ---------------------------------------------------------------------------
@@ -148,8 +223,7 @@ export async function generateSkin(opts: GenerateSkinOptions): Promise<Generated
 
   opts.onProgress?.(`Connecting to Claude (${model})…`);
 
-  // Build the user message
-  let userMsg = buildUserMessage(opts);
+  const userMsg = buildUserMessage(opts);
 
   opts.onProgress?.("Generating skin — this may take ~30 s…");
 
@@ -160,7 +234,7 @@ export async function generateSkin(opts: GenerateSkinOptions): Promise<Generated
       {
         type: "text",
         text: SYSTEM_PROMPT,
-        // Cache the large system prompt so repeated calls in one session are fast
+        // Cache the large system prompt so repeat calls in one session are fast
         cache_control: { type: "ephemeral" },
       },
     ],
@@ -191,7 +265,75 @@ export async function generateSkin(opts: GenerateSkinOptions): Promise<Generated
   const usage = {
     inputTokens: response.usage.input_tokens,
     outputTokens: response.usage.output_tokens,
-    cacheReadTokens: (response.usage as unknown as Record<string, number>).cache_read_input_tokens ?? 0,
+    cacheReadTokens:
+      (response.usage as unknown as Record<string, number>).cache_read_input_tokens ?? 0,
+  };
+
+  return { skinName, setupPy, conceptMd, params, paramsJson, rawResponse, usage };
+}
+
+// ---------------------------------------------------------------------------
+// Streaming variant — yields text tokens as they arrive
+// ---------------------------------------------------------------------------
+
+export interface StreamGenerateSkinOptions extends GenerateSkinOptions {
+  onToken: (text: string) => void;
+}
+
+export async function generateSkinStream(
+  opts: StreamGenerateSkinOptions,
+): Promise<GeneratedSkin> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    throw new Error("ANTHROPIC_API_KEY is not set.");
+  }
+
+  const client = new Anthropic({ apiKey });
+  const model = opts.model ?? "claude-opus-4-7";
+
+  const userMsg = buildUserMessage(opts);
+
+  const stream = client.messages.stream({
+    model,
+    max_tokens: 8192,
+    system: [
+      {
+        type: "text",
+        text: SYSTEM_PROMPT,
+        cache_control: { type: "ephemeral" },
+      },
+    ],
+    messages: [{ role: "user", content: userMsg }],
+  });
+
+  let rawResponse = "";
+
+  stream.on("text", (text) => {
+    rawResponse += text;
+    opts.onToken(text);
+  });
+
+  const finalMsg = await stream.finalMessage();
+
+  const setupPy = extractBlock(rawResponse, "setup_py");
+  const conceptMd = extractBlock(rawResponse, "concept_md");
+  const paramsJson = extractBlock(rawResponse, "skin_params");
+
+  let params: Record<string, unknown>;
+  try {
+    params = JSON.parse(paramsJson);
+  } catch {
+    params = { raw: paramsJson };
+  }
+
+  const skinName =
+    (params.skinName as string | undefined) ?? opts.skinName ?? "GeneratedSkin";
+
+  const usage = {
+    inputTokens: finalMsg.usage.input_tokens,
+    outputTokens: finalMsg.usage.output_tokens,
+    cacheReadTokens:
+      (finalMsg.usage as unknown as Record<string, number>).cache_read_input_tokens ?? 0,
   };
 
   return { skinName, setupPy, conceptMd, params, paramsJson, rawResponse, usage };
