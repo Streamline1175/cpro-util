@@ -24,6 +24,7 @@
     "node": ">=20"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
     "@fastify/multipart": "^9.0.3",
     "@fastify/static": "^9.1.1",
     "commander": "^14.0.0",
