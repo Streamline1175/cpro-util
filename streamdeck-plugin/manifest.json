@@ -1,0 +1,36 @@
+{
+  "Name": "cpro-util Centerpiece",
+  "Version": "1.0.0",
+  "Author": "cpro-util",
+  "Description": "Control Finalmouse Centerpiece skin slots from your Stream Deck.",
+  "SDKVersion": 2,
+  "Category": "cpro-util",
+  "CategoryIcon": "imgs/plugin/CategoryIcon",
+  "CodePath": "dist/plugin.js",
+  "Icon": "imgs/plugin/Icon",
+  "URL": "https://github.com/elfuego/cpro-util",
+  "Actions": [
+    {
+      "Name": "Select Slot",
+      "UUID": "com.cpro-util.streamdeck.select-slot",
+      "Icon": "imgs/actions/select-slot/ActionIcon",
+      "Tooltip": "Switch the active skin slot on the Centerpiece keyboard.",
+      "Controllers": ["Keypad"],
+      "States": [
+        {
+          "Image": "imgs/actions/select-slot/ActionIcon",
+          "TitleAlignment": "bottom",
+          "FontSize": "10",
+          "Title": "Slot"
+        }
+      ],
+      "PropertyInspectorPath": "pi/select-slot.html",
+      "SupportedInMultiActions": true,
+      "DisableCaching": false
+    }
+  ],
+  "OS": [
+    { "Platform": "mac", "MinimumVersion": "10.15" },
+    { "Platform": "windows", "MinimumVersion": "10" }
+  ]
+}

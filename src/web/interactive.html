@@ -236,6 +236,57 @@ select { background: var(--panel-2); border: 1px solid var(--border); color: var
     <div id="key-table"></div>
   </details>
 
+  <!-- Interactive skin (.pak) upload to keyboard -->
+  <div id="pak-upload-section" style="width:100%;max-width:min(1920px,calc(100vw - 40px))">
+    <div style="background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:16px 20px;display:flex;flex-direction:column;gap:12px">
+
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <p style="margin:0;font-weight:700;font-size:13px">⌨ Upload interactive skin (.pak) to keyboard</p>
+        <span id="kbd-status" style="font-size:12px;color:var(--muted)">Keyboard not detected</span>
+        <button class="ctrl-btn" id="btn-discover" style="margin-left:auto" title="Try to auto-detect the keyboard on your local network via mDNS">Detect keyboard</button>
+      </div>
+
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+
+        <!-- Pak drop zone -->
+        <div id="pak-drop" style="flex:1;min-width:220px;border:1.5px dashed var(--border);border-radius:8px;padding:14px 18px;cursor:pointer;transition:border-color .15s;display:flex;align-items:center;gap:10px">
+          <input type="file" id="pak-file-input" accept=".pak" style="display:none" />
+          <span id="pak-drop-label" style="color:var(--muted);font-size:13px">Drop <code>.pak</code> here or click to choose</span>
+        </div>
+
+        <!-- Slot selector -->
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <label style="font-size:11px;color:var(--muted)">Slot (0–4)</label>
+          <select id="pak-slot" style="background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 10px;font:13px/1 inherit">
+            <option value="0">0</option>
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+          </select>
+        </div>
+
+        <!-- Manual host override -->
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <label for="pak-host" style="font-size:11px;color:var(--muted)">Keyboard IP <span style="opacity:.6">(leave blank to auto-detect)</span></label>
+          <input type="text" id="pak-host" placeholder="e.g. 192.168.1.42" style="background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 10px;font:13px/1 inherit;width:160px" />
+        </div>
+
+        <!-- Upload button -->
+        <button class="ctrl-btn" id="btn-pak-upload" disabled title="Upload the selected .pak to the keyboard slot">Upload to keyboard</button>
+      </div>
+
+      <!-- Progress -->
+      <div id="pak-progress" hidden style="display:flex;flex-direction:column;gap:6px">
+        <div style="background:var(--panel-2);border-radius:4px;height:6px;overflow:hidden">
+          <div id="pak-progress-bar" style="height:100%;width:0%;background:var(--accent);transition:width .2s"></div>
+        </div>
+        <span id="pak-progress-label" style="font-size:12px;color:var(--muted)"></span>
+      </div>
+
+    </div>
+  </div>
+
   <!-- Interactive skin deploy guide -->
   <details id="deploy-guide" style="width:100%;max-width:min(1920px,calc(100vw - 40px))">
     <summary style="cursor:pointer;font-size:13px;color:var(--muted);padding:4px;user-select:none">
@@ -1196,6 +1247,135 @@ for (const k of ALL_KEYS) {
   div.addEventListener('click', () => triggerKey(k.index));
   tableEl.appendChild(div);
 }
+// ============================================================
+// PAK UPLOAD PANEL
+// ============================================================
+(function () {
+  const pakDrop       = document.getElementById('pak-drop');
+  const pakFileInput  = document.getElementById('pak-file-input');
+  const pakDropLabel  = document.getElementById('pak-drop-label');
+  const pakSlot       = document.getElementById('pak-slot');
+  const pakHost       = document.getElementById('pak-host');
+  const btnUpload     = document.getElementById('btn-pak-upload');
+  const btnDiscover   = document.getElementById('btn-discover');
+  const kbdStatus     = document.getElementById('kbd-status');
+  const pakProgress   = document.getElementById('pak-progress');
+  const pakProgressBar   = document.getElementById('pak-progress-bar');
+  const pakProgressLabel = document.getElementById('pak-progress-label');
+
+  let selectedPak = null;
+
+  function setKbdStatus(text, ok) {
+    kbdStatus.textContent = text;
+    kbdStatus.style.color = ok === true ? 'var(--ok)' : ok === false ? '#f88' : 'var(--muted)';
+  }
+
+  function refreshUploadBtn() {
+    btnUpload.disabled = !selectedPak;
+  }
+
+  // ── File selection ──────────────────────────────────────────────────────
+  pakDrop.addEventListener('click', () => pakFileInput.click());
+  pakDrop.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    pakDrop.style.borderColor = 'var(--accent)';
+  });
+  pakDrop.addEventListener('dragleave', () => {
+    pakDrop.style.borderColor = '';
+  });
+  pakDrop.addEventListener('drop', (e) => {
+    e.preventDefault();
+    pakDrop.style.borderColor = '';
+    const f = e.dataTransfer?.files?.[0];
+    if (f) pickFile(f);
+  });
+  pakFileInput.addEventListener('change', () => {
+    if (pakFileInput.files?.[0]) pickFile(pakFileInput.files[0]);
+  });
+
+  function pickFile(f) {
+    if (!f.name.toLowerCase().endsWith('.pak')) {
+      setKbdStatus('Only .pak files are supported', false);
+      return;
+    }
+    selectedPak = f;
+    pakDropLabel.innerHTML = `<strong style="color:var(--text)">${f.name}</strong> <span style="color:var(--muted)">(${formatBytes(f.size)})</span>`;
+    pakDrop.style.borderColor = 'var(--accent)';
+    refreshUploadBtn();
+  }
+
+  function formatBytes(b) {
+    if (b < 1024) return b + ' B';
+    if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
+    return (b / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+
+  // ── Keyboard discovery ──────────────────────────────────────────────────
+  btnDiscover.addEventListener('click', async () => {
+    btnDiscover.disabled = true;
+    setKbdStatus('Searching…', undefined);
+    try {
+      const res  = await fetch('/api/keyboard/discover');
+      const json = await res.json();
+      if (json.ok) {
+        pakHost.value = json.host;
+        setKbdStatus(`Found: ${json.host}`, true);
+      } else {
+        setKbdStatus('Not found — enter IP manually', false);
+      }
+    } catch {
+      setKbdStatus('Network error during discovery', false);
+    } finally {
+      btnDiscover.disabled = false;
+    }
+  });
+
+  // ── Upload ──────────────────────────────────────────────────────────────
+  btnUpload.addEventListener('click', async () => {
+    if (!selectedPak) return;
+    btnUpload.disabled = true;
+    pakProgress.hidden = false;
+    pakProgressBar.style.width = '0%';
+    pakProgressLabel.textContent = 'Uploading…';
+    setKbdStatus('Uploading…', undefined);
+
+    // Animate progress bar during upload (server streams the file; we fake incremental progress)
+    let fakeProgress = 0;
+    const fakeTimer = setInterval(() => {
+      fakeProgress = Math.min(90, fakeProgress + (90 - fakeProgress) * 0.08);
+      pakProgressBar.style.width = fakeProgress.toFixed(1) + '%';
+    }, 200);
+
+    try {
+      const fd = new FormData();
+      fd.append('file', selectedPak, selectedPak.name);
+      fd.append('slot', pakSlot.value);
+      const host = pakHost.value.trim();
+      if (host) fd.append('host', host);
+
+      const res  = await fetch('/api/keyboard/upload-pak', { method: 'POST', body: fd });
+      const json = await res.json();
+
+      clearInterval(fakeTimer);
+
+      if (json.ok) {
+        pakProgressBar.style.width = '100%';
+        pakProgressLabel.textContent = `Uploaded ${formatBytes(json.bytes)} to slot ${json.slot} ✓`;
+        setKbdStatus(`Uploaded to slot ${json.slot}`, true);
+      } else {
+        pakProgressBar.style.width = '0%';
+        pakProgressLabel.textContent = 'Upload failed: ' + (json.error ?? 'unknown error');
+        setKbdStatus('Upload failed', false);
+      }
+    } catch (err) {
+      clearInterval(fakeTimer);
+      pakProgressLabel.textContent = 'Network error: ' + err.message;
+      setKbdStatus('Upload failed', false);
+    } finally {
+      btnUpload.disabled = false;
+    }
+  });
+})();
 </script>
 </body>
 </html>
