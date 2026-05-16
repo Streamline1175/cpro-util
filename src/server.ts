@@ -16,6 +16,7 @@ import { DEFAULT_OPTIONS, SPECS, clampFps, clampBitrateMbps, parseTimeToSeconds,
 import { fetchVideoFromUrl, isUrl } from "./lib/fetch-url.js";
 import { generateSkinStream } from "./lib/ai-generate.js";
 import { inspectPak } from "./lib/pak-inspect.js";
+import { uploadPak, discoverKeyboardHost } from "./lib/ue-pak.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -382,6 +383,34 @@ export async function startServer(opts: ServerOptions) {
     }
 
     raw.end();
+  });
+
+  // ── Keyboard discovery ──────────────────────────────────────────────────
+  app.get("/api/pak/discover", async () => discoverKeyboardHost());
+
+  // ── PAK upload to keyboard ──────────────────────────────────────────────
+  app.post("/api/pak/upload", async (req, reply) => {
+    const mp = await req.file({ limits: { fileSize: 512 * 1024 * 1024 } });
+    if (!mp) return reply.code(400).send({ ok: false, error: "no file uploaded" });
+
+    const fields = mp.fields as Record<string, { value?: string } | undefined>;
+    const slot = Math.max(0, Math.min(4, Number(fields.slot?.value ?? "0")));
+    const host = fields.host?.value?.trim() || undefined;
+    const port = Number(fields.port?.value ?? "8080");
+
+    const id = randomUUID();
+    const pakPath = join(workDir, "in", `${id}.pak`);
+    const buf = await mp.toBuffer();
+    await writeFile(pakPath, buf);
+
+    try {
+      await uploadPak({ pakPath, slot, host, port });
+      return { ok: true };
+    } catch (err: any) {
+      return reply.code(500).send({ ok: false, error: String(err?.message ?? err) });
+    } finally {
+      rm(pakPath, { force: true }).catch(() => {});
+    }
   });
 
   await app.listen({ port: opts.port, host: "127.0.0.1" });

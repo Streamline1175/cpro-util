@@ -267,20 +267,33 @@ const MDNS_CANDIDATES = [
 ];
 
 async function discoverKeyboard(): Promise<string> {
-  for (const hostname of MDNS_CANDIDATES) {
-    try {
-      const { address } = await dnsLookup(hostname, { family: 4 });
-      return address;
-    } catch {
-      // try next candidate
-    }
-  }
+  const result = await discoverKeyboardHost();
+  if (result.host) return result.host;
   throw new Error(
     "Could not auto-discover the keyboard on the local network.\n" +
       "Make sure the keyboard is connected to the same WiFi network, then either:\n" +
       "  a) Pass --host <keyboard-ip>  (find the IP in your router's device list)\n" +
       "  b) Ensure Bonjour/Avahi/mDNS is running on this machine",
   );
+}
+
+export interface KeyboardDiscoveryResult {
+  found: boolean;
+  host: string | null;
+  hostname: string | null;
+  candidates: string[];
+}
+
+export async function discoverKeyboardHost(): Promise<KeyboardDiscoveryResult> {
+  for (const hostname of MDNS_CANDIDATES) {
+    try {
+      const { address } = await dnsLookup(hostname, { family: 4 });
+      return { found: true, host: address, hostname, candidates: MDNS_CANDIDATES };
+    } catch {
+      // try next candidate
+    }
+  }
+  return { found: false, host: null, hostname: null, candidates: MDNS_CANDIDATES };
 }
 
 // ---------------------------------------------------------------------------
