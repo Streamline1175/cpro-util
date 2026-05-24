@@ -27,7 +27,15 @@ import {
 import { inspectPak } from "./lib/pak-inspect.js";
 import { generateSkin } from "./lib/ai-generate.js";
 import { isUrl, fetchVideoFromUrl } from "./lib/fetch-url.js";
-
+import {
+  isConnected,
+  selectSlot,
+  pullSlotPreview,
+  pullAllPreviews,
+  verifySlotUpload,
+  CENTERPIECE_VID,
+  CENTERPIECE_PID,
+} from "./lib/hid-device.js";
 const program = new Command();
 program
   .name("cpro")
@@ -370,6 +378,7 @@ uePak
     "keyboard IP or hostname (auto-discovers via mDNS if omitted)",
   )
   .option("--port <n>", "keyboard HTTP port", "8080")
+  .option("--verify", "poll slot preview hash via HID until stable (confirms skin loaded)")
   .action(async (pakPath: string, opts) => {
     const abs = resolve(pakPath);
     if (!existsSync(abs)) exitError(`PAK not found: ${abs}`);
@@ -393,6 +402,27 @@ uePak
     });
     process.stdout.write("\n");
     console.log(`✓ Skin uploaded to slot ${slot} — select it on your keyboard to activate`);
+
+    if (opts.verify) {
+      // Slot in ue-pak is 0-based; HID selectSlot expects 1-based
+      const hidSlot = slot + 1;
+      if (await isConnected()) {
+        console.log(`→ Verifying via HID preview hash (slot ${hidSlot})…`);
+        const verify = await verifySlotUpload(hidSlot, {
+          onPoll: (attempt, sha) =>
+            console.log(`  poll ${attempt}: ${sha ? sha.slice(0, 16) + "…" : "(no data)"}`,
+          ),
+        });
+        if (verify.ok) {
+          console.log(`✓ Verified — preview hash stable after ${verify.attempts} poll(s)`);
+          console.log(`  SHA256: ${verify.finalSha256}`);
+        } else {
+          console.warn(`⚠ Verification: ${verify.error}`);
+        }
+      } else {
+        console.warn("⚠ --verify: keyboard not found via HID (USB connection required)");
+      }
+    }
   });
 
 // ---------------------------------------------------------------------------
@@ -562,6 +592,158 @@ program
   .description("Print the Centerpiece Pro skin specs")
   .action(() => {
     console.log(JSON.stringify(SPECS, null, 2));
+  });
+
+// ---------------------------------------------------------------------------
+// slot — HID slot control (USB connection required)
+// ---------------------------------------------------------------------------
+const slot = program
+  .command("slot")
+  .description("Control Centerpiece slots via USB HID (VID 0x361D / PID 0x0202)");
+
+slot
+  .command("status")
+  .description("Check if the keyboard is connected via USB HID")
+  .action(async () => {
+    const connected = await isConnected();
+    if (connected) {
+      console.log(`✓ Centerpiece connected  (VID 0x${CENTERPIECE_VID.toString(16).toUpperCase()} / PID 0x${CENTERPIECE_PID.toString(16).toUpperCase()})`);
+    } else {
+      console.log("✗ Centerpiece not detected via HID");
+      console.log("  Ensure the keyboard is plugged in via USB.");
+      console.log("  On macOS grant Input Monitoring: System Settings → Privacy & Security → Input Monitoring.");
+      process.exit(1);
+    }
+  });
+
+slot
+  .command("select")
+  .description("Switch the active Centerpiece slot (1–5)")
+  .argument("<n>", "slot number (1–5)")
+  .action(async (n: string) => {
+    const slotNum = Number(n);
+    if (!Number.isInteger(slotNum) || slotNum < 1 || slotNum > 5) exitError("Slot must be 1–5");
+    console.log(`→ Switching to slot ${slotNum}…`);
+    const result = await selectSlot(slotNum);
+    if (result.ok) {
+      console.log(`✓ Slot ${slotNum} selected`);
+    } else {
+      exitError(result.error ?? "Unknown HID error");
+    }
+  });
+
+slot
+  .command("preview")
+  .description("Pull and save preview PNG(s) from the keyboard")
+  .option("-s, --slot <n>", "specific slot (1–5), omit for all 5")
+  .option("-o, --out <dir>", "output directory", ".")
+  .action(async (opts) => {
+    await mkdir(resolve(opts.out), { recursive: true });
+
+    if (opts.slot) {
+      const slotNum = Number(opts.slot);
+      if (!Number.isInteger(slotNum) || slotNum < 1 || slotNum > 5)
+        exitError("Slot must be 1–5");
+      console.log(`→ Pulling preview for slot ${slotNum}…`);
+      const result = await pullSlotPreview(slotNum);
+      if (!result.pngBuffer) exitError(result.error ?? "No preview received");
+      const outPath = resolve(opts.out, `slot-${slotNum}-preview.png`);
+      await (await import("node:fs/promises")).writeFile(outPath, result.pngBuffer);
+      console.log(`✓ Saved ${outPath} (SHA256: ${result.sha256?.slice(0, 16)}…)`);
+    } else {
+      console.log("→ Pulling previews for all 5 slots…");
+      const results = await pullAllPreviews({
+        onSlot: async (r) => {
+          if (r.pngBuffer) {
+            const outPath = resolve(opts.out, `slot-${r.slot}-preview.png`);
+            await (await import("node:fs/promises")).writeFile(outPath, r.pngBuffer);
+            console.log(`  slot ${r.slot} ✓  ${outPath} (${r.sha256?.slice(0, 16)}…)`);
+          } else {
+            console.log(`  slot ${r.slot} ✗  ${r.error ?? "no data"}`);
+          }
+        },
+      });
+      const ok = results.filter((r) => r.pngBuffer).length;
+      console.log(`\n✓ ${ok}/5 previews saved to ${resolve(opts.out)}`);
+    }
+  });
+
+slot
+  .command("verify")
+  .description("Poll slot preview hash via HID until stable (confirm a skin has loaded)")
+  .argument("<n>", "slot number (1–5)")
+  .option("--timeout <ms>", "max wait in milliseconds", "45000")
+  .option("--interval <ms>", "poll interval in milliseconds", "3000")
+  .action(async (n: string, opts) => {
+    const slotNum = Number(n);
+    if (!Number.isInteger(slotNum) || slotNum < 1 || slotNum > 5) exitError("Slot must be 1–5");
+    console.log(`→ Verifying slot ${slotNum} (up to ${Number(opts.timeout) / 1000}s)…`);
+    const result = await verifySlotUpload(slotNum, {
+      maxWaitMs: Number(opts.timeout),
+      pollIntervalMs: Number(opts.interval),
+      onPoll: (attempt, sha) =>
+        console.log(`  poll ${attempt}: ${sha ? sha.slice(0, 16) + "…" : "(no data)"}`),
+    });
+    if (result.ok) {
+      console.log(`✓ Verified after ${result.attempts} poll(s)`);
+      console.log(`  SHA256: ${result.finalSha256}`);
+    } else {
+      exitError(result.error ?? "Verification failed");
+    }
+  });
+
+// ---------------------------------------------------------------------------
+// ytdlp — yt-dlp management
+// ---------------------------------------------------------------------------
+const ytdlp = program
+  .command("ytdlp")
+  .description("Manage yt-dlp (YouTube/Vimeo downloader)");
+
+ytdlp
+  .command("check")
+  .description("Check whether yt-dlp is installed and show its version")
+  .action(async () => {
+    const bin = process.env.YTDLP_PATH ?? "yt-dlp";
+    const { execFile } = await import("node:child_process");
+    await new Promise<void>((resolve) => {
+      execFile(bin, ["--version"], { timeout: 5000 }, (err, stdout) => {
+        if (err) {
+          console.log("✗ yt-dlp not found");
+          console.log("  Install: brew install yt-dlp   (macOS)");
+          console.log("           pip install yt-dlp    (any OS)");
+        } else {
+          console.log(`✓ yt-dlp ${stdout.trim()}`);
+        }
+        resolve();
+      });
+    });
+  });
+
+ytdlp
+  .command("update")
+  .description("Update yt-dlp to the latest version (runs yt-dlp -U)")
+  .action(async () => {
+    const bin = process.env.YTDLP_PATH ?? "yt-dlp";
+    const { spawn } = await import("node:child_process");
+    console.log(`→ Updating yt-dlp (${bin})…`);
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(bin, ["-U"], { stdio: "inherit" });
+      child.on("error", (e: NodeJS.ErrnoException) => {
+        if (e.code === "ENOENT") {
+          reject(new Error("yt-dlp not found — install it first (brew install yt-dlp)"));
+        } else {
+          reject(e);
+        }
+      });
+      child.on("close", (code) => {
+        if (code === 0) {
+          console.log("✓ yt-dlp is up to date");
+          resolve();
+        } else {
+          reject(new Error(`yt-dlp update exited with code ${code}`));
+        }
+      });
+    }).catch((e) => exitError(e.message));
   });
 
 program.parseAsync().catch((e) => {

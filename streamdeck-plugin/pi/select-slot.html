@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Select Slot – Property Inspector</title>
+  <link rel="stylesheet" href="https://cdn.elgato.com/streamdeck/1.5/css/sdpi.css" />
+</head>
+<body>
+  <div class="sdpi-wrapper">
+
+    <div class="sdpi-item">
+      <div class="sdpi-item-label">Slot</div>
+      <select class="sdpi-item-value" id="slot-select">
+        <option value="1">Slot 1</option>
+        <option value="2">Slot 2</option>
+        <option value="3">Slot 3</option>
+        <option value="4">Slot 4</option>
+        <option value="5">Slot 5</option>
+      </select>
+    </div>
+
+    <div class="sdpi-item">
+      <div class="sdpi-item-label">Server port</div>
+      <input class="sdpi-item-value" type="number" id="server-port" value="7777" min="1" max="65535" />
+    </div>
+
+    <div class="sdpi-item">
+      <div class="sdpi-item-label"></div>
+      <button class="sdpi-item-value" id="refresh-preview-btn">Refresh preview image</button>
+    </div>
+
+    <div class="sdpi-item sdpi-info-field" id="status-msg" style="display:none">
+      <!-- Status messages shown here -->
+    </div>
+
+  </div>
+
+  <script>
+    /* Stream Deck property inspector communication */
+    let websocketPI;
+    let pluginUUID;
+    let actionInfo;
+    let settings = {};
+
+    function connectElgatoStreamDeckSocket(port, uuid, registerEvent, info, actionStr) {
+      pluginUUID = uuid;
+      actionInfo = JSON.parse(actionStr);
+      settings = actionInfo.payload.settings || {};
+
+      websocketPI = new WebSocket("ws://127.0.0.1:" + port);
+
+      websocketPI.onopen = () => {
+        const registerMsg = JSON.stringify({
+          event: registerEvent,
+          uuid: pluginUUID,
+        });
+        websocketPI.send(registerMsg);
+
+        // Request settings
+        websocketPI.send(JSON.stringify({
+          event: "getSettings",
+          context: pluginUUID,
+        }));
+      };
+
+      websocketPI.onmessage = (evt) => {
+        const data = JSON.parse(evt.data);
+        if (data.event === "didReceiveSettings") {
+          settings = data.payload.settings || {};
+          applySettings();
+        }
+      };
+    }
+
+    function applySettings() {
+      if (settings.slot) document.getElementById("slot-select").value = String(settings.slot);
+      if (settings.serverPort) document.getElementById("server-port").value = String(settings.serverPort);
+    }
+
+    function saveSettings() {
+      settings.slot = Number(document.getElementById("slot-select").value);
+      settings.serverPort = Number(document.getElementById("server-port").value) || 7777;
+      websocketPI?.send(JSON.stringify({
+        event: "setSettings",
+        context: pluginUUID,
+        payload: settings,
+      }));
+    }
+
+    document.getElementById("slot-select").addEventListener("change", saveSettings);
+    document.getElementById("server-port").addEventListener("change", saveSettings);
+
+    document.getElementById("refresh-preview-btn").addEventListener("click", () => {
+      websocketPI?.send(JSON.stringify({
+        event: "sendToPlugin",
+        context: pluginUUID,
+        payload: { event: "refreshPreview", settings },
+      }));
+      const msg = document.getElementById("status-msg");
+      msg.style.display = "";
+      msg.textContent = "Refreshing preview…";
+      setTimeout(() => { msg.style.display = "none"; }, 3000);
+    });
+  </script>
+</body>
+</html>

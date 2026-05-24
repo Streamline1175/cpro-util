@@ -266,7 +266,7 @@ const MDNS_CANDIDATES = [
   "finalmouse.local",
 ];
 
-async function discoverKeyboard(): Promise<string> {
+export async function discoverKeyboard(): Promise<string> {
   const result = await discoverKeyboardHost();
   if (result.host) return result.host;
   throw new Error(

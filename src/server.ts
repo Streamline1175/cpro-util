@@ -16,7 +16,15 @@ import { DEFAULT_OPTIONS, SPECS, clampFps, clampBitrateMbps, parseTimeToSeconds,
 import { fetchVideoFromUrl, isUrl } from "./lib/fetch-url.js";
 import { generateSkinStream } from "./lib/ai-generate.js";
 import { inspectPak } from "./lib/pak-inspect.js";
-import { uploadPak, discoverKeyboardHost } from "./lib/ue-pak.js";
+import { uploadPak, discoverKeyboardHost, discoverKeyboard } from "./lib/ue-pak.js";
+import {
+  isConnected,
+  selectSlot,
+  pullSlotPreview,
+  verifySlotUpload,
+  CENTERPIECE_VID,
+  CENTERPIECE_PID,
+} from "./lib/hid-device.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -385,10 +393,9 @@ export async function startServer(opts: ServerOptions) {
     raw.end();
   });
 
-  // ── Keyboard discovery ──────────────────────────────────────────────────
+  // ── PAK discover + upload (legacy /api/pak/* routes) ────────────────────
   app.get("/api/pak/discover", async () => discoverKeyboardHost());
 
-  // ── PAK upload to keyboard ──────────────────────────────────────────────
   app.post("/api/pak/upload", async (req, reply) => {
     const mp = await req.file({ limits: { fileSize: 512 * 1024 * 1024 } });
     if (!mp) return reply.code(400).send({ ok: false, error: "no file uploaded" });
@@ -411,6 +418,131 @@ export async function startServer(opts: ServerOptions) {
     } finally {
       rm(pakPath, { force: true }).catch(() => {});
     }
+  });
+
+  // ── Keyboard: auto-discover IP via mDNS ─────────────────────────────────
+  app.get("/api/keyboard/discover", async (_req, reply) => {
+    try {
+      const host = await discoverKeyboard();
+      return { ok: true, host };
+    } catch (err: any) {
+      return reply.code(404).send({ ok: false, error: String(err?.message ?? err) });
+    }
+  });
+
+  // ── Keyboard: upload a cooked .pak to a slot ─────────────────────────────
+  app.post("/api/keyboard/upload-pak", async (req, reply) => {
+    const mp = await req.file({ limits: { fileSize: 512 * 1024 * 1024 } });
+    if (!mp) return reply.code(400).send({ ok: false, error: "No file uploaded" });
+
+    const fields = mp.fields as Record<string, { value?: string } | undefined>;
+    const slot = Math.max(0, Math.min(4, Number(fields.slot?.value ?? 0)));
+    const host = fields.host?.value?.trim() || undefined;
+
+    if (!mp.filename?.toLowerCase().endsWith(".pak")) {
+      return reply.code(400).send({ ok: false, error: "Only .pak files are accepted" });
+    }
+
+    const pakPath = join(workDir, "in", `${randomUUID()}.pak`);
+    const buf = await mp.toBuffer();
+    await writeFile(pakPath, buf);
+
+    try {
+      await uploadPak({
+        pakPath,
+        slot,
+        host,
+        onProgress: () => { /* fire-and-forget; client polls via response */ },
+      });
+      return { ok: true, slot, bytes: buf.length };
+    } catch (err: any) {
+      return reply.code(500).send({ ok: false, error: String(err?.message ?? err) });
+    } finally {
+      rm(pakPath, { force: true }).catch(() => {});
+    }
+  });
+
+  // ── HID: device status ──────────────────────────────────────────────────
+  app.get("/api/hid/status", async () => {
+    const connected = await isConnected();
+    return {
+      connected,
+      vid: `0x${CENTERPIECE_VID.toString(16).toUpperCase().padStart(4, "0")}`,
+      pid: `0x${CENTERPIECE_PID.toString(16).toUpperCase().padStart(4, "0")}`,
+    };
+  });
+
+  // ── HID: pull slot preview PNG ──────────────────────────────────────────
+  // Returns the PNG as a base64 data URL so the browser can render it inline.
+  app.get("/api/hid/slot/:n/preview", async (req, reply) => {
+    const n = parseInt((req.params as { n: string }).n, 10);
+    if (!Number.isFinite(n) || n < 1 || n > 5) {
+      return reply.code(400).send({ ok: false, error: "Slot must be 1–5" });
+    }
+    const result = await pullSlotPreview(n, { timeoutMs: 10_000 });
+    if (!result.pngBuffer) {
+      return reply.code(503).send({ ok: false, error: result.error ?? "No preview" });
+    }
+    const dataUrl = `data:image/png;base64,${result.pngBuffer.toString("base64")}`;
+    return { ok: true, slot: n, sha256: result.sha256, dataUrl };
+  });
+
+  // ── HID: select active slot ─────────────────────────────────────────────
+  app.post("/api/hid/slot/:n/select", async (req, reply) => {
+    const n = parseInt((req.params as { n: string }).n, 10);
+    if (!Number.isFinite(n) || n < 1 || n > 5) {
+      return reply.code(400).send({ ok: false, error: "Slot must be 1–5" });
+    }
+    const result = await selectSlot(n);
+    if (!result.ok) {
+      return reply.code(503).send({ ok: false, error: result.error });
+    }
+    return { ok: true, slot: n };
+  });
+
+  // ── HID: verify slot upload ─────────────────────────────────────────────
+  // SSE stream: sends { attempt, sha } events then a final { ok, finalSha256 } done event.
+  app.get("/api/hid/slot/:n/verify", async (req, reply) => {
+    const n = parseInt((req.params as { n: string }).n, 10);
+    if (!Number.isFinite(n) || n < 1 || n > 5) {
+      return reply.code(400).send({ ok: false, error: "Slot must be 1–5" });
+    }
+    const raw = reply.raw;
+    raw.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+    raw.write(": connected\n\n");
+
+    const result = await verifySlotUpload(n, {
+      onPoll: (attempt, sha) => {
+        raw.write(`event: poll\ndata: ${JSON.stringify({ attempt, sha })}\n\n`);
+      },
+    });
+    raw.write(`event: done\ndata: ${JSON.stringify(result)}\n\n`);
+    raw.end();
+  });
+
+  // ── yt-dlp update ───────────────────────────────────────────────────────
+  app.post("/api/ytdlp/update", async (_req, reply) => {
+    const bin = process.env.YTDLP_PATH || "yt-dlp";
+    return new Promise<void>((resolve) => {
+      execFile(bin, ["-U"], { timeout: 60_000 }, (err, stdout, stderr) => {
+        if (err && (err as NodeJS.ErrnoException).code === "ENOENT") {
+          reply.send({ ok: false, error: "yt-dlp not found" });
+        } else if (err) {
+          reply.send({
+            ok: false,
+            error: (stderr || err.message || "Update failed").trim(),
+          });
+        } else {
+          reply.send({ ok: true, output: stdout.trim() || "Already up to date." });
+        }
+        resolve();
+      });
+    });
   });
 
   await app.listen({ port: opts.port, host: "127.0.0.1" });
