@@ -223,6 +223,13 @@ Convert from a URL (requires `yt-dlp`):
 cpro convert "https://www.youtube.com/watch?v=dQw4w9WgXcQ" --fit cover
 ```
 
+Trim a clip during conversion (works for local files and URLs):
+
+```bash
+cpro convert clip.mov --start 0:30 --duration 0:15   # 15-second clip starting at 30s
+cpro convert "https://youtu.be/…" --start 45 --duration 30
+```
+
 Open the web UI:
 
 ```bash
@@ -243,6 +250,15 @@ cpro set assign ~/skins/main.cproskinset 0 ~/videos/neon.mov --label Neon
 cpro set assign ~/skins/main.cproskinset 1 ~/images/logo.png --fit contain
 cpro set show   ~/skins/main.cproskinset
 cpro set preview ~/skins/main.cproskinset 0
+```
+
+Control keyboard slots via USB HID (requires USB connection):
+
+```bash
+cpro slot status          # check if the keyboard is detected
+cpro slot select 2        # switch to slot 2 (1–5)
+cpro slot preview -s 1    # pull + save slot 1 preview PNG
+cpro slot preview -o ./previews   # pull all 5 slots to a folder
 ```
 
 Print device specs as JSON:
@@ -266,7 +282,23 @@ cpro specs
 | `cpro set clear <dir> <slot>` | Empty a slot |
 | `cpro set rename <dir> <slot> <label>` | Rename a slot |
 | `cpro set preview <dir> <slot>` | Preview the skin in a slot |
+| `cpro slot status` | Check keyboard USB HID connection |
+| `cpro slot select <n>` | Switch active keyboard slot (1–5) |
+| `cpro slot preview` | Pull slot preview PNG(s) from the keyboard |
 | `cpro specs` | Print device specs |
+
+### Unreal Engine interactive skin commands
+
+| Command | Purpose |
+|---|---|
+| `cpro ue init <dir>` | Copy the UE 5.x skin template into a directory |
+| `cpro ue export <project>` | Render a UE 5.x skin project to `.mp4` |
+| `cpro ue pak init <dir>` | Scaffold a UE 4.27.2 interactive skin project |
+| `cpro ue pak cook <project>` | Cook an interactive skin to a `.pak` (Android ASTC) |
+| `cpro ue pak upload <pak> -s <slot>` | Upload a cooked `.pak` to a keyboard slot over Wi-Fi |
+| `cpro ue pak inspect <pak>` | Show the asset manifest embedded in a `.pak` file |
+| `cpro ue pak generate <dir> --prompt "…"` | AI-generate a new interactive skin from a text prompt |
+| `cpro ue pak preview` | Open the interactive keyboard preview in a browser |
 
 ---
 
@@ -322,6 +354,84 @@ cpro ue export ~/skins/my-skin -o neon.skin.mp4   # renders to a compliant .mp4
 ```
 
 Requires UE 5.4+. Pass `--ue-path` or set `UE_ROOT` if the tool can't auto-locate `UnrealEditor-Cmd`. See [ue-skin-template/README.md](ue-skin-template/README.md) for details.
+
+---
+
+## Interactive skin workflow (UE 4.27.2 + .pak upload)
+
+For fully interactive skins (particle effects, key reactions, animations):
+
+```bash
+# 1. Scaffold a new UE 4.27.2 project
+cpro ue pak init ~/skins/my-interactive-skin
+
+# 2. Open the .uproject in UE 4.27.2, author your skin,
+#    then cook it to a .pak (requires Android SDK + UE 4.27.2 source build)
+cpro ue pak cook ~/skins/my-interactive-skin -o dist/my-skin.pak
+
+# 3. Upload directly to the keyboard over Wi-Fi
+cpro ue pak upload dist/my-skin.pak --slot 0
+
+# 4. Preview the interactive key layout in a browser (no keyboard required)
+cpro ue pak preview
+```
+
+See [ue-interactive-template/README.md](ue-interactive-template/README.md) for full setup instructions including Android SDK and UE 4.27.2 source build requirements.
+
+---
+
+## AI skin generation
+
+Generate a complete interactive skin project from a plain-English description using Claude:
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-…
+
+cpro ue pak generate ~/skins/lightning-skin \
+  --prompt "lightning sparks that arc between nearby keys when pressed" \
+  --name Lightning
+```
+
+This calls Claude to produce:
+- `Python/setup_interactive.py` — the full UE Python setup script for the skin
+- `skin_concept.md` — asset creation guide with visual references
+- `skin_params.json` — tuneable parameters (colors, particle counts, timing)
+
+You can also upload a reference `.pak` file so Claude can match its structure:
+
+```bash
+cpro ue pak generate ~/skins/new-skin \
+  --prompt "koi fish swimming across the keys" \
+  --ref-pak dist/existing-skin.pak
+```
+
+The web UI (`cpro serve` → **Generate** tab) provides a streaming interface for generation without using the CLI.
+
+---
+
+## HID slot control (USB)
+
+Switch slots, pull previews, and verify uploads directly over USB without the Finalmouse app:
+
+```bash
+cpro slot status            # check keyboard is detected (VID 0x361D / PID 0x0202)
+cpro slot select 3          # activate slot 3 (1–5)
+cpro slot preview -s 2      # save slot 2 preview to current directory
+cpro slot preview -o ./out  # save all 5 slot previews to ./out/
+
+# Upload a .pak and verify it loaded via HID preview hash
+cpro ue pak upload dist/skin.pak --slot 0 --verify
+```
+
+> macOS: grant **Input Monitoring** under System Settings → Privacy & Security if prompted.
+
+---
+
+## Stream Deck plugin
+
+Switch keyboard slots from a Stream Deck button. See [streamdeck-plugin/README.md](streamdeck-plugin/README.md) for setup.
+
+The plugin communicates with a running `cpro serve` instance over HTTP (`/api/hid/slot/:n/select`) so the Stream Deck and the server can share the USB device without conflict.
 
 ---
 
