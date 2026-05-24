@@ -39,6 +39,8 @@
       <svg class="url-installed-icon" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="8" cy="8" r="7.25" stroke="currentColor" stroke-width="1.5"/><path d="M4.5 8.5l2.5 2.5 4.5-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <span>yt-dlp is installed</span>
       <span class="url-installed-version" id="ytdlp-version"></span>
+      <button type="button" class="btn-ytdlp-update" id="ytdlp-update-btn" title="Update yt-dlp to the latest version">Update</button>
+      <span id="ytdlp-update-status" class="ytdlp-update-status" hidden></span>
     </div>
     <section class="url">
       <label for="url">Paste a YouTube / Vimeo / direct video URL</label>
@@ -82,6 +84,20 @@
       <label>Start <input type="text" id="start" placeholder="0 or 1:30" inputmode="decimal" /></label>
       <label>Duration <input type="text" id="duration" placeholder="e.g. 15 or 0:30" inputmode="decimal" /></label>
       <small>Seconds, or H:M:S / M:S. Leave blank for the whole video.</small>
+      <div id="trim-timeline-wrap" class="trim-timeline-wrap" hidden>
+        <div id="trim-timeline" class="trim-timeline" title="Drag handles to set start / end">
+          <div class="trim-track">
+            <div class="trim-selected" id="trim-selected"></div>
+            <div class="trim-handle trim-handle-start" id="trim-handle-start" title="Drag: set start"></div>
+            <div class="trim-handle trim-handle-end" id="trim-handle-end" title="Drag: set end"></div>
+          </div>
+          <div class="trim-labels">
+            <span id="trim-label-start">0s</span>
+            <span id="trim-label-total"></span>
+            <span id="trim-label-end"></span>
+          </div>
+        </div>
+      </div>
     </fieldset>
   </section>
 
@@ -123,6 +139,29 @@
       <button type="button" id="delete-all-btn" class="btn-danger">Delete all</button>
     </div>
     <div id="cached-files-list" class="cached-files-list"></div>
+  </section>
+
+  <!-- ── Device (HID slot control) ──────────────────────────────────── -->
+  <section id="device-section" class="device-section">
+    <div class="section-header">
+      <h2>Keyboard Device</h2>
+      <div class="device-status-row">
+        <span class="device-status-dot" id="device-dot"></span>
+        <span class="device-status-text" id="device-status-text">Checking…</span>
+        <button type="button" class="btn-device-refresh" id="device-refresh-btn" title="Refresh connection status">↻</button>
+      </div>
+    </div>
+    <p class="device-hint" id="device-hint" hidden>
+      Connect the keyboard via USB. On macOS, grant <strong>Input Monitoring</strong> in
+      System Settings → Privacy &amp; Security → Input Monitoring.
+    </p>
+    <div class="slot-grid" id="slot-grid">
+      <!-- 5 slot tiles rendered by JS -->
+    </div>
+    <div class="device-actions" id="device-actions" hidden>
+      <button type="button" class="btn-load-all-previews" id="load-all-previews-btn">Load all previews</button>
+      <span class="device-verify-hint">After uploading a skin, use <em>Verify</em> to confirm it loaded.</span>
+    </div>
   </section>
 
   <footer>

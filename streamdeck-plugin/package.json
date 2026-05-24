@@ -1,0 +1,19 @@
+{
+  "name": "com.cpro-util.streamdeck",
+  "version": "1.0.0",
+  "description": "Stream Deck plugin for cpro-util – Centerpiece slot control",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "dev": "npm run build && streamdeck link"
+  },
+  "dependencies": {
+    "@elgato/streamdeck": "^0.4.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/node": "^20.0.0"
+  }
+}

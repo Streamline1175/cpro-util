@@ -393,3 +393,365 @@
 
   loadCachedFiles();
 })();
+
+// ── yt-dlp update ─────────────────────────────────────────────────────────
+(() => {
+  const updateBtn = document.getElementById("ytdlp-update-btn");
+  const updateStatus = document.getElementById("ytdlp-update-status");
+  if (!updateBtn) return;
+
+  updateBtn.addEventListener("click", async () => {
+    updateBtn.disabled = true;
+    updateStatus.hidden = false;
+    updateStatus.className = "ytdlp-update-status";
+    updateStatus.textContent = "Updating…";
+    try {
+      const res = await fetch("/api/ytdlp/update", { method: "POST" });
+      const data = await res.json();
+      if (data.ok) {
+        updateStatus.classList.add("ok");
+        updateStatus.textContent = "✓ " + (data.output || "Up to date");
+        // Refresh version badge
+        fetch("/api/ytdlp-check").then(r => r.json()).then(d => {
+          if (d.version) {
+            const vEl = document.getElementById("ytdlp-version");
+            if (vEl) vEl.textContent = `v${d.version}`;
+          }
+        }).catch(() => {});
+      } else {
+        updateStatus.classList.add("err");
+        updateStatus.textContent = "✗ " + (data.error || "Update failed");
+      }
+    } catch (e) {
+      updateStatus.classList.add("err");
+      updateStatus.textContent = "✗ " + (e.message || "Network error");
+    } finally {
+      updateBtn.disabled = false;
+    }
+  });
+})();
+
+// ── Visual trim timeline ──────────────────────────────────────────────────
+(() => {
+  const timelineWrap = document.getElementById("trim-timeline-wrap");
+  const track = document.getElementById("trim-timeline")?.querySelector(".trim-track");
+  const selected = document.getElementById("trim-selected");
+  const handleStart = document.getElementById("trim-handle-start");
+  const handleEnd = document.getElementById("trim-handle-end");
+  const labelStart = document.getElementById("trim-label-start");
+  const labelEnd = document.getElementById("trim-label-end");
+  const labelTotal = document.getElementById("trim-label-total");
+  const startInput = document.getElementById("start");
+  const durationInput = document.getElementById("duration");
+  if (!timelineWrap || !track || !selected || !handleStart || !handleEnd) return;
+
+  let videoDuration = 0;
+  let startFrac = 0;
+  let endFrac = 1;
+
+  const fmtTime = (s) => {
+    s = Math.max(0, s);
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = (s % 60).toFixed(1);
+    if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(4, "0")}`;
+    if (m > 0) return `${m}:${sec.padStart(4, "0")}`;
+    return `${sec}s`;
+  };
+
+  const parseTimeSec = (val) => {
+    const s = String(val ?? "").trim();
+    if (!s) return 0;
+    const parts = s.split(":");
+    let secs = 0;
+    for (const p of parts) {
+      const n = Number(p);
+      if (!Number.isFinite(n) || n < 0) return 0;
+      secs = secs * 60 + n;
+    }
+    return secs;
+  };
+
+  const updateUI = () => {
+    const s = startFrac * 100;
+    const e = endFrac * 100;
+    selected.style.left = s + "%";
+    selected.style.width = (e - s) + "%";
+    handleStart.style.left = s + "%";
+    handleEnd.style.left = e + "%";
+    if (videoDuration > 0) {
+      const startSec = startFrac * videoDuration;
+      const endSec = endFrac * videoDuration;
+      labelStart.textContent = fmtTime(startSec);
+      labelEnd.textContent = fmtTime(endSec);
+      startInput.value = startSec <= 0 ? "" : startSec.toFixed(1);
+      durationInput.value = endFrac >= 1 && startFrac <= 0 ? "" : (endSec - startSec).toFixed(1);
+    }
+  };
+
+  const syncFromInputs = () => {
+    if (videoDuration <= 0) return;
+    const startSec = parseTimeSec(startInput.value);
+    const durSec = parseTimeSec(durationInput.value);
+    startFrac = Math.max(0, Math.min(1, startSec / videoDuration));
+    const endSec = durSec > 0 ? startSec + durSec : videoDuration;
+    endFrac = Math.max(startFrac, Math.min(1, endSec / videoDuration));
+    updateUI();
+  };
+
+  // Drag logic
+  let dragging = null;
+  const onMouseMove = (e) => {
+    if (!dragging || videoDuration <= 0) return;
+    const rect = track.getBoundingClientRect();
+    const frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    if (dragging === "start") {
+      startFrac = Math.min(frac, endFrac - 0.01);
+    } else {
+      endFrac = Math.max(frac, startFrac + 0.01);
+    }
+    updateUI();
+    // Live-seek the preview video to start position
+    const previewStage = document.getElementById("preview-stage");
+    const vid = previewStage?.querySelector("video");
+    if (vid && dragging === "start") vid.currentTime = startFrac * videoDuration;
+  };
+  const onMouseUp = () => { dragging = null; };
+
+  handleStart.addEventListener("mousedown", (e) => { e.preventDefault(); dragging = "start"; });
+  handleEnd.addEventListener("mousedown", (e) => { e.preventDefault(); dragging = "end"; });
+  document.addEventListener("mousemove", onMouseMove);
+  document.addEventListener("mouseup", onMouseUp);
+
+  // Touch support
+  const onTouchMove = (e) => {
+    if (!dragging) return;
+    e.preventDefault();
+    onMouseMove(e.touches[0]);
+  };
+  handleStart.addEventListener("touchstart", (e) => { e.preventDefault(); dragging = "start"; }, { passive: false });
+  handleEnd.addEventListener("touchstart", (e) => { e.preventDefault(); dragging = "end"; }, { passive: false });
+  document.addEventListener("touchmove", onTouchMove, { passive: false });
+  document.addEventListener("touchend", onMouseUp);
+
+  startInput.addEventListener("change", syncFromInputs);
+  durationInput.addEventListener("change", syncFromInputs);
+
+  // Listen for when a video is loaded in the preview stage
+  // We need to observe when the preview stage gets a video element
+  const observer = new MutationObserver(() => {
+    const previewStage = document.getElementById("preview-stage");
+    const vid = previewStage?.querySelector("video");
+    if (vid && !vid._trimListener) {
+      vid._trimListener = true;
+      const onMeta = () => {
+        if (!vid.duration || !Number.isFinite(vid.duration)) return;
+        videoDuration = vid.duration;
+        startFrac = 0; endFrac = 1;
+        timelineWrap.hidden = false;
+        labelTotal.textContent = fmtTime(videoDuration);
+        updateUI();
+        // Sync from existing text input values (user may have typed something)
+        syncFromInputs();
+      };
+      if (vid.readyState >= 1 && vid.duration) {
+        onMeta();
+      } else {
+        vid.addEventListener("loadedmetadata", onMeta, { once: true });
+      }
+    }
+    // Hide timeline when video removed (image loaded or reset)
+    if (!previewStage?.querySelector("video")) {
+      timelineWrap.hidden = true;
+      videoDuration = 0;
+    }
+  });
+  const previewCompare = document.getElementById("preview-compare");
+  if (previewCompare) observer.observe(previewCompare, { childList: true, subtree: true });
+})();
+
+// ── Device / HID slot panel ───────────────────────────────────────────────
+(() => {
+  const dot = document.getElementById("device-dot");
+  const statusText = document.getElementById("device-status-text");
+  const refreshBtn = document.getElementById("device-refresh-btn");
+  const hintEl = document.getElementById("device-hint");
+  const slotGrid = document.getElementById("slot-grid");
+  const deviceActions = document.getElementById("device-actions");
+  const loadAllBtn = document.getElementById("load-all-previews-btn");
+  if (!dot || !slotGrid) return;
+
+  const SLOT_COUNT = 5;
+  const slotState = Array.from({ length: SLOT_COUNT }, (_, i) => ({
+    slot: i + 1,
+    previewDataUrl: null,
+    sha256: null,
+    loading: false,
+    verifying: false,
+  }));
+
+  // Build initial slot tiles
+  for (const s of slotState) {
+    const tile = document.createElement("div");
+    tile.className = "slot-tile";
+    tile.id = `slot-tile-${s.slot}`;
+    tile.innerHTML = `
+      <div class="slot-tile-header">
+        <span class="slot-tile-label">Slot ${s.slot}</span>
+        <span class="slot-active-badge" id="slot-active-${s.slot}" hidden>Active</span>
+      </div>
+      <div class="slot-preview-wrap">
+        <img id="slot-img-${s.slot}" src="" alt="" hidden />
+        <div class="slot-preview-placeholder" id="slot-placeholder-${s.slot}">—</div>
+      </div>
+      <div class="slot-tile-actions">
+        <button class="btn-slot-select" id="slot-select-${s.slot}" disabled>Set Active</button>
+        <button class="btn-slot-preview" id="slot-pull-${s.slot}" disabled title="Pull preview from keyboard">⟳</button>
+        <button class="btn-slot-verify" id="slot-verify-${s.slot}" disabled title="Poll hash until stable (verify upload)">✓?</button>
+      </div>
+      <div class="slot-tile-status" id="slot-status-${s.slot}"></div>
+    `;
+    slotGrid.appendChild(tile);
+
+    tile.querySelector(`#slot-select-${s.slot}`).addEventListener("click", () => activateSlot(s.slot));
+    tile.querySelector(`#slot-pull-${s.slot}`).addEventListener("click", () => pullPreview(s.slot));
+    tile.querySelector(`#slot-verify-${s.slot}`).addEventListener("click", () => verifySlot(s.slot));
+  }
+
+  const setTileStatus = (slot, text) => {
+    const el = document.getElementById(`slot-status-${slot}`);
+    if (el) el.textContent = text;
+  };
+  const setTileEnabled = (connected) => {
+    for (let i = 1; i <= SLOT_COUNT; i++) {
+      const sel = document.getElementById(`slot-select-${i}`);
+      const pull = document.getElementById(`slot-pull-${i}`);
+      const ver = document.getElementById(`slot-verify-${i}`);
+      if (sel) sel.disabled = !connected;
+      if (pull) pull.disabled = !connected;
+      if (ver) ver.disabled = !connected;
+    }
+  };
+
+  const checkStatus = async () => {
+    refreshBtn.classList.add("spinning");
+    try {
+      const res = await fetch("/api/hid/status");
+      const data = await res.json();
+      if (data.connected) {
+        dot.className = "device-status-dot connected";
+        statusText.textContent = `Connected (${data.vid}:${data.pid})`;
+        hintEl.hidden = true;
+        deviceActions.hidden = false;
+        setTileEnabled(true);
+      } else {
+        dot.className = "device-status-dot disconnected";
+        statusText.textContent = "Not detected via USB HID";
+        hintEl.hidden = false;
+        deviceActions.hidden = true;
+        setTileEnabled(false);
+      }
+    } catch {
+      dot.className = "device-status-dot";
+      statusText.textContent = "Unable to check";
+    } finally {
+      refreshBtn.classList.remove("spinning");
+    }
+  };
+
+  const pullPreview = async (slot) => {
+    const pullBtn = document.getElementById(`slot-pull-${slot}`);
+    const img = document.getElementById(`slot-img-${slot}`);
+    const placeholder = document.getElementById(`slot-placeholder-${slot}`);
+    if (!pullBtn) return;
+
+    pullBtn.disabled = true;
+    setTileStatus(slot, "Pulling preview…");
+    try {
+      const res = await fetch(`/api/hid/slot/${slot}/preview`);
+      const data = await res.json();
+      if (data.ok && data.dataUrl) {
+        slotState[slot - 1].previewDataUrl = data.dataUrl;
+        slotState[slot - 1].sha256 = data.sha256;
+        img.src = data.dataUrl;
+        img.hidden = false;
+        placeholder.hidden = true;
+        setTileStatus(slot, data.sha256 ? data.sha256.slice(0, 12) + "…" : "");
+      } else {
+        setTileStatus(slot, "✗ " + (data.error || "No preview"));
+      }
+    } catch (e) {
+      setTileStatus(slot, "✗ " + (e.message || "Error"));
+    } finally {
+      pullBtn.disabled = false;
+    }
+  };
+
+  const activateSlot = async (slot) => {
+    const selectBtn = document.getElementById(`slot-select-${slot}`);
+    if (!selectBtn) return;
+    selectBtn.disabled = true;
+    setTileStatus(slot, "Switching…");
+    try {
+      const res = await fetch(`/api/hid/slot/${slot}/select`, { method: "POST" });
+      const data = await res.json();
+      if (data.ok) {
+        // Update active badge
+        for (let i = 1; i <= SLOT_COUNT; i++) {
+          const badge = document.getElementById(`slot-active-${i}`);
+          const tile = document.getElementById(`slot-tile-${i}`);
+          if (badge) badge.hidden = (i !== slot);
+          if (tile) tile.classList.toggle("active-slot", i === slot);
+        }
+        setTileStatus(slot, "✓ Active");
+      } else {
+        setTileStatus(slot, "✗ " + (data.error || "Failed"));
+      }
+    } catch (e) {
+      setTileStatus(slot, "✗ " + (e.message || "Error"));
+    } finally {
+      selectBtn.disabled = false;
+    }
+  };
+
+  const verifySlot = (slot) => {
+    const verifyBtn = document.getElementById(`slot-verify-${slot}`);
+    if (!verifyBtn) return;
+    verifyBtn.disabled = true;
+    setTileStatus(slot, "Verifying…");
+
+    const es = new EventSource(`/api/hid/slot/${slot}/verify`);
+    es.addEventListener("poll", (e) => {
+      const d = JSON.parse(e.data);
+      setTileStatus(slot, `Poll ${d.attempt}: ${d.sha ? d.sha.slice(0, 10) + "…" : "…"}`);
+    });
+    es.addEventListener("done", (e) => {
+      es.close();
+      const d = JSON.parse(e.data);
+      if (d.ok) {
+        setTileStatus(slot, `✓ Verified (${d.attempts} polls)`);
+        // Refresh preview to show new skin
+        pullPreview(slot);
+      } else {
+        setTileStatus(slot, "⚠ " + (d.error || "Timed out"));
+      }
+      verifyBtn.disabled = false;
+    });
+    es.onerror = () => {
+      es.close();
+      setTileStatus(slot, "✗ Verify stream error");
+      verifyBtn.disabled = false;
+    };
+  };
+
+  if (loadAllBtn) {
+    loadAllBtn.addEventListener("click", async () => {
+      loadAllBtn.disabled = true;
+      for (let i = 1; i <= SLOT_COUNT; i++) await pullPreview(i);
+      loadAllBtn.disabled = false;
+    });
+  }
+
+  refreshBtn.addEventListener("click", checkStatus);
+  checkStatus();
+})();

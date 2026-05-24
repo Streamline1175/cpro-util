@@ -266,7 +266,7 @@ const MDNS_CANDIDATES = [
   "finalmouse.local",
 ];
 
-async function discoverKeyboard(): Promise<string> {
+export async function discoverKeyboard(): Promise<string> {
   for (const hostname of MDNS_CANDIDATES) {
     try {
       const { address } = await dnsLookup(hostname, { family: 4 });
