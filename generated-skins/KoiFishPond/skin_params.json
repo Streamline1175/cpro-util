@@ -1,0 +1,93 @@
+{
+  "skinName": "KoiFishPond",
+  "effectType": "ambient-wildlife + reactive-ripple",
+  "description": "Autonomous koi fish wander the pond; keypresses create water ripples and startle nearby fish",
+
+  "primaryColor": "#FF4808",
+  "secondaryColor": "#0D3345",
+
+  "fishColors": [
+    { "name": "orange",    "hex": "#FF4808", "variety": "Classic koi" },
+    { "name": "gold",      "hex": "#FF8C0D", "variety": "Ogon" },
+    { "name": "white",     "hex": "#FFFFFF",  "variety": "Shiro Utsuri" },
+    { "name": "red",       "hex": "#D92614", "variety": "Benigoi" },
+    { "name": "tangerine", "hex": "#E67200", "variety": "Orenji" }
+  ],
+
+  "fishCount": 5,
+  "fishSwimSpeed": 110.0,
+  "fishFleeSpeed": 360.0,
+  "fishScaredDuration": 2.8,
+  "fishWiggleFrequency": 2.9,
+  "fishWiggleAmplitude": 16.0,
+
+  "ripple": {
+    "niagaraSystem": "NS_WaterRipple",
+    "simTarget": "CPUSim",
+    "ringCount": 3,
+    "lifetimeMin": 0.4,
+    "lifetimeMax": 1.8,
+    "spriteSizeStart": 4.0,
+    "spriteSizeEnd": 232.0,
+    "color": "#9DDBFF",
+    "material": "M_WaterRing",
+    "userParams": ["User.RippleColor", "User.RippleScale"]
+  },
+
+  "splash": {
+    "niagaraSystem": "NS_FishSplash",
+    "simTarget": "CPUSim",
+    "particleCount": 8,
+    "lifetimeMin": 0.25,
+    "lifetimeMax": 0.45,
+    "speedMin": 55,
+    "speedMax": 150,
+    "drag": 4.5,
+    "gravity": -110
+  },
+
+  "scareRadius": 450.0,
+
+  "waterMaterial": {
+    "name": "M_WaterSurface",
+    "baseColor": "#021421",
+    "metallic": 0.88,
+    "roughness": 0.06,
+    "shimmerPanSpeed": [0.007, 0.003]
+  },
+
+  "niagaraModules": [
+    "Emitter State",
+    "Spawn Burst Instantaneous",
+    "Initialize Particle",
+    "Scale Sprite Size",
+    "Scale Color",
+    "Add Velocity (Sphere Random)",
+    "Drag",
+    "Gravity Force",
+    "Sprite Renderer"
+  ],
+
+  "simTarget": "CPUSim",
+  "particleCount": 3,
+  "burstDuration": 1.8,
+
+  "gpuBudget": {
+    "maxSimultaneousParticles": 43,
+    "budgetCeiling": 100,
+    "tickActors": 6,
+    "note": "Well within Centerpiece GPU limit"
+  },
+
+  "canvas": {
+    "width": 1920,
+    "height": 550,
+    "fps": 60
+  },
+
+  "deployment": {
+    "cookCommand": "cpro ue pak cook ./KoiFishPond",
+    "uploadCommand": "cpro ue pak upload dist/skin.pak --slot 0",
+    "requiredPlugins": ["Niagara", "NiagaraCore", "NiagaraShader"]
+  }
+}

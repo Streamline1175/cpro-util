@@ -24,7 +24,10 @@ import {
   uploadPak,
   resolveUe427Root,
 } from "./lib/ue-pak.js";
-import { isUrl, fetchVideoFromUrl } from "./lib/fetch-url.js";import {
+import { inspectPak } from "./lib/pak-inspect.js";
+import { generateSkin } from "./lib/ai-generate.js";
+import { isUrl, fetchVideoFromUrl } from "./lib/fetch-url.js";
+import {
   isConnected,
   selectSlot,
   pullSlotPreview,
@@ -420,6 +423,148 @@ uePak
         console.warn("⚠ --verify: keyboard not found via HID (USB connection required)");
       }
     }
+  });
+
+// ---------------------------------------------------------------------------
+// ue pak inspect — reverse-engineer an existing .pak file
+// ---------------------------------------------------------------------------
+uePak
+  .command("inspect")
+  .description("Show the asset manifest embedded in a cooked .pak file")
+  .argument("<pak>", "path to a .pak file")
+  .option("--json", "output raw JSON instead of human-readable table")
+  .action(async (pakPath: string, opts) => {
+    const abs = resolve(pakPath);
+    if (!existsSync(abs)) exitError(`PAK not found: ${abs}`);
+
+    console.log(`→ Inspecting ${abs}…`);
+    const manifest = await inspectPak(abs);
+
+    if (opts.json) {
+      console.log(JSON.stringify(manifest, null, 2));
+      return;
+    }
+
+    const mb = (manifest.fileSize / 1024 / 1024).toFixed(2);
+    console.log(`\nPAK: ${abs}  (${mb} MB)\n`);
+
+    if (manifest.skinFolder) {
+      console.log(`  Skin folder   : ${manifest.skinFolder}`);
+    }
+    if (manifest.textureFormat) {
+      console.log(`  Texture format: ${manifest.textureFormat}`);
+    }
+    if (manifest.plugins.length) {
+      console.log(`  Plugins       : ${manifest.plugins.join(", ")}`);
+    }
+
+    console.log(`\n  Game assets (${manifest.gameAssets.length}):`);
+    for (const a of manifest.gameAssets) console.log(`    ${a}`);
+
+    if (manifest.engineAssets.length) {
+      console.log(`\n  Engine assets (${manifest.engineAssets.length}):`);
+      for (const a of manifest.engineAssets.slice(0, 20)) console.log(`    ${a}`);
+      if (manifest.engineAssets.length > 20)
+        console.log(`    … and ${manifest.engineAssets.length - 20} more`);
+    }
+  });
+
+// ---------------------------------------------------------------------------
+// ue pak generate — AI-generate a complete interactive skin project
+// ---------------------------------------------------------------------------
+uePak
+  .command("generate")
+  .description(
+    "Use Claude to generate a new interactive skin project from a plain-English prompt",
+  )
+  .argument("<dir>", "target directory for the new project (will be created)")
+  .requiredOption(
+    "--prompt <text>",
+    "describe the visual effect (e.g. \"lightning sparks between nearby keys\")",
+  )
+  .option("--name <name>", "skin name / folder suffix (e.g. Lightning)")
+  .option(
+    "--ref-pak <file>",
+    "path to an existing .pak to use as structural reference",
+  )
+  .option(
+    "--model <id>",
+    "Claude model ID to use",
+    "claude-opus-4-7",
+  )
+  .option("--no-scaffold", "skip copying the UE template — only write generated files")
+  .action(async (dir: string, opts) => {
+    const target = resolve(dir);
+
+    // Optionally inspect a reference pak
+    let referencePak;
+    if (opts.refPak) {
+      const refAbs = resolve(opts.refPak);
+      if (!existsSync(refAbs)) exitError(`Reference PAK not found: ${refAbs}`);
+      console.log(`→ Inspecting reference pak: ${refAbs}`);
+      referencePak = await inspectPak(refAbs);
+      console.log(
+        `  Found ${referencePak.gameAssets.length} game assets` +
+          (referencePak.skinFolder ? ` in ${referencePak.skinFolder}` : ""),
+      );
+    }
+
+    // Run AI generation
+    console.log(`\n→ Generating skin with Claude (${opts.model})…`);
+    console.log(`  Prompt: "${opts.prompt}"`);
+    if (!process.env.ANTHROPIC_API_KEY) {
+      exitError(
+        "ANTHROPIC_API_KEY is not set.\n  Export it first:  export ANTHROPIC_API_KEY=sk-ant-…",
+      );
+    }
+
+    let generated;
+    try {
+      generated = await generateSkin({
+        prompt: opts.prompt,
+        skinName: opts.name,
+        referencePak,
+        model: opts.model,
+        onProgress: (s) => console.log(`  ${s}`),
+      });
+    } catch (e: any) {
+      exitError(`Generation failed: ${e.message}`);
+    }
+
+    // Scaffold the UE template if requested
+    if (opts.scaffold !== false) {
+      console.log(`\n→ Scaffolding UE project template into ${target}…`);
+      await uePakInit({ targetDir: target });
+    } else {
+      await mkdir(target, { recursive: true });
+    }
+
+    // Write generated files
+    const { writeFile } = await import("node:fs/promises");
+    const setupPath = resolve(target, "Python", "setup_interactive.py");
+    const conceptPath = resolve(target, "skin_concept.md");
+    const paramsPath = resolve(target, "skin_params.json");
+
+    await mkdir(resolve(target, "Python"), { recursive: true });
+    await writeFile(setupPath, generated!.setupPy, "utf8");
+    await writeFile(conceptPath, generated!.conceptMd, "utf8");
+    await writeFile(paramsPath, generated!.paramsJson, "utf8");
+
+    const u = generated!.usage;
+    console.log(
+      `\n✓ Skin "${generated!.skinName}" generated` +
+        (u.cacheReadTokens ? ` (${u.cacheReadTokens} cache-read tokens saved)` : ""),
+    );
+    console.log(`  ${setupPath}`);
+    console.log(`  ${conceptPath}`);
+    console.log(`  ${paramsPath}`);
+    console.log();
+    console.log("  Next steps:");
+    console.log("  1. Read skin_concept.md for the asset creation guide");
+    console.log(`  2. Open ${target}/CpInteractiveSkin.uproject in UE 4.27.2`);
+    console.log("  3. Run Python/setup_interactive.py from the UE Python console");
+    console.log(`  4. cpro ue pak cook ${target}`);
+    console.log(`  5. cpro ue pak upload dist/skin.pak --slot 0`);
   });
 
 uePak

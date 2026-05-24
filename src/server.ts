@@ -14,7 +14,9 @@ import { convertImage } from "./lib/convert-image.js";
 import { convertVideo } from "./lib/convert-video.js";
 import { DEFAULT_OPTIONS, SPECS, clampFps, clampBitrateMbps, parseTimeToSeconds, type FitStrategy } from "./lib/specs.js";
 import { fetchVideoFromUrl, isUrl } from "./lib/fetch-url.js";
-import { uploadPak, discoverKeyboard } from "./lib/ue-pak.js";
+import { generateSkinStream } from "./lib/ai-generate.js";
+import { inspectPak } from "./lib/pak-inspect.js";
+import { uploadPak, discoverKeyboardHost, discoverKeyboard } from "./lib/ue-pak.js";
 import {
   isConnected,
   selectSlot,
@@ -69,6 +71,10 @@ export async function startServer(opts: ServerOptions) {
   });
 
   app.get("/api/specs", async () => SPECS);
+
+  app.get("/api/generate-status", async () => ({
+    hasApiKey: !!process.env.ANTHROPIC_API_KEY,
+  }));
 
   // Key layout data — same positions as GetPositionByKeyIndex() in CpSkinAPIBPLibrary.cpp
   app.get("/api/keys", async () => {
@@ -320,6 +326,98 @@ export async function startServer(opts: ServerOptions) {
     await mkdir(inDir, { recursive: true });
     await mkdir(outDir, { recursive: true });
     return { ok: true };
+  });
+
+  // ── AI skin generator (SSE streaming) ──────────────────────────────────
+  app.post("/api/generate", async (req, reply) => {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return reply.code(400).send({ ok: false, error: "ANTHROPIC_API_KEY is not set on the server" });
+    }
+
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+    if (!prompt) return reply.code(400).send({ ok: false, error: "prompt is required" });
+
+    const skinName = typeof body.skinName === "string" ? body.skinName.trim() || undefined : undefined;
+    const model = typeof body.model === "string" ? body.model.trim() || "claude-opus-4-7" : "claude-opus-4-7";
+
+    // Optional base64-encoded reference pak
+    let referencePak;
+    if (typeof body.refPakBase64 === "string" && body.refPakBase64) {
+      try {
+        const buf = Buffer.from(body.refPakBase64, "base64");
+        const tmpPak = join(workDir, "in", `ref-${randomUUID()}.pak`);
+        await writeFile(tmpPak, buf);
+        referencePak = await inspectPak(tmpPak);
+      } catch {
+        // ignore bad pak — continue without reference
+      }
+    }
+
+    reply.hijack();
+    const raw = reply.raw;
+    raw.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+
+    const send = (obj: Record<string, unknown>) =>
+      raw.write(`data: ${JSON.stringify(obj)}\n\n`);
+
+    send({ type: "status", text: `Connecting to Claude (${model})…` });
+
+    try {
+      const result = await generateSkinStream({
+        prompt,
+        skinName,
+        referencePak,
+        model,
+        onProgress: (text) => send({ type: "status", text }),
+        onToken: (text) => send({ type: "token", text }),
+      });
+
+      send({
+        type: "done",
+        skinName: result.skinName,
+        setupPy: result.setupPy,
+        conceptMd: result.conceptMd,
+        paramsJson: result.paramsJson,
+        usage: result.usage,
+      });
+    } catch (err: any) {
+      send({ type: "error", error: String(err?.message ?? err) });
+    }
+
+    raw.end();
+  });
+
+  // ── PAK discover + upload (legacy /api/pak/* routes) ────────────────────
+  app.get("/api/pak/discover", async () => discoverKeyboardHost());
+
+  app.post("/api/pak/upload", async (req, reply) => {
+    const mp = await req.file({ limits: { fileSize: 512 * 1024 * 1024 } });
+    if (!mp) return reply.code(400).send({ ok: false, error: "no file uploaded" });
+
+    const fields = mp.fields as Record<string, { value?: string } | undefined>;
+    const slot = Math.max(0, Math.min(4, Number(fields.slot?.value ?? "0")));
+    const host = fields.host?.value?.trim() || undefined;
+    const port = Number(fields.port?.value ?? "8080");
+
+    const id = randomUUID();
+    const pakPath = join(workDir, "in", `${id}.pak`);
+    const buf = await mp.toBuffer();
+    await writeFile(pakPath, buf);
+
+    try {
+      await uploadPak({ pakPath, slot, host, port });
+      return { ok: true };
+    } catch (err: any) {
+      return reply.code(500).send({ ok: false, error: String(err?.message ?? err) });
+    } finally {
+      rm(pakPath, { force: true }).catch(() => {});
+    }
   });
 
   // ── Keyboard: auto-discover IP via mDNS ─────────────────────────────────

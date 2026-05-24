@@ -1,0 +1,14 @@
+{
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "typescript.preferences.importModuleSpecifier": "relative",
+  "github.copilot.chat.codeGeneration.useInstructionFiles": true,
+  "github.copilot.chat.codeGeneration.instructions": [
+    {
+      "text": "This is the cpro-util project. When generating Python scripts for Unreal Engine 4.27.2 interactive skins, always use Niagara particle systems (not sprite sheets). See .github/copilot-instructions.md for the full CpSkinAPI reference, GPU constraints, and Niagara configuration patterns."
+    }
+  ],
+  "files.associations": {
+    "*.pak": "binary"
+  }
+}

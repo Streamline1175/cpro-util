@@ -152,7 +152,9 @@ select { background: var(--panel-2); border: 1px solid var(--border); color: var
   <span class="sep">·</span>
   <span class="page-title">Interactive Skin Preview — Centerpiece Founder's Edition</span>
   <nav>
-    <a href="/">← Back to converter</a>
+    <a href="/generate.html">✦ AI Generate</a>
+    <a href="/discover.html">&#x1F4E1; Keyboard</a>
+    <a href="/">← Converter</a>
   </nav>
 </header>
 
@@ -200,6 +202,13 @@ select { background: var(--panel-2); border: 1px solid var(--border); color: var
       <label>Particles</label>
       <input type="range" id="input-particle-count" min="5" max="80" step="5" value="25" />
       <span id="label-particle-count" style="font-family:ui-monospace,monospace;color:var(--muted);font-size:12px">25</span>
+    </div>
+
+    <div class="ctrl-group">
+      <label>Load skin</label>
+      <button class="ctrl-btn" id="btn-load-params" title="Load a generated skin_params.json to preview its effect, colours, and particle settings">Load skin_params.json</button>
+      <input type="file" id="input-params" accept=".json" />
+      <span id="badge-skin" hidden class="badge" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
     </div>
 
     <div class="ctrl-group" style="margin-left:auto">
@@ -358,6 +367,56 @@ cpro ue pak upload dist/skin.pak --slot 0 --host 192.168.1.42</pre>
 
     </div>
   </details>
+
+  <!-- PAK deploy panel -->
+  <div id="pak-deploy" style="width:100%;max-width:min(1920px,calc(100vw - 40px))">
+    <div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:18px 20px;display:flex;flex-direction:column;gap:16px">
+
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-weight:700;font-size:14px">Deploy .pak to keyboard</span>
+        <span style="color:var(--muted);font-size:12px;flex:1">Upload a cooked interactive skin over Wi-Fi</span>
+        <button class="ctrl-btn" id="btn-discover-kbd" style="font-size:12px">&#x1F50D; Discover keyboard</button>
+        <span id="badge-kbd" class="badge" style="font-size:11px">not connected</span>
+      </div>
+
+      <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+        <div class="ctrl-group" style="flex:1;min-width:240px">
+          <label>.pak file</label>
+          <button class="ctrl-btn" id="btn-browse-pak">Browse…</button>
+          <input type="file" id="input-pak" accept=".pak" />
+          <span id="label-pak-name" style="font-family:ui-monospace,monospace;font-size:11px;color:var(--muted);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">no file selected</span>
+        </div>
+
+        <div class="ctrl-group">
+          <label>Slot</label>
+          <select id="select-pak-slot">
+            <option value="0">0</option>
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+          </select>
+        </div>
+
+        <div class="ctrl-group" style="flex:1;min-width:200px">
+          <label>Keyboard host</label>
+          <input id="input-kbd-host" type="text" placeholder="auto-discover"
+            style="background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:4px 8px;font:13px/1 inherit;width:180px" />
+        </div>
+
+        <button class="ctrl-btn" id="btn-upload-pak" disabled style="padding:6px 18px;font-size:13px">
+          &#x2191; Upload to keyboard
+        </button>
+      </div>
+
+      <!-- progress + status -->
+      <div id="upload-status" hidden style="background:var(--panel-2);border:1px solid var(--border);border-radius:6px;padding:10px 14px;font-size:12px;display:flex;gap:10px;align-items:center">
+        <span id="upload-status-text" style="flex:1;font-family:ui-monospace,monospace;color:var(--muted)"></span>
+        <span id="upload-status-badge" class="badge"></span>
+      </div>
+
+    </div>
+  </div>
 
 </main>
 
@@ -1247,6 +1306,88 @@ for (const k of ALL_KEYS) {
   div.addEventListener('click', () => triggerKey(k.index));
   tableEl.appendChild(div);
 }
+
+// ============================================================
+// SKIN PARAMS BRIDGE — load skin_params.json → configure preview
+// ============================================================
+function mapEffectType(effectType) {
+  const e = (effectType || '').toLowerCase();
+  if (e.includes('ripple') || e.includes('wave') || e.includes('water') || e.includes('pond')) return 'ripple';
+  if (e.includes('fire')   || e.includes('flame') || e.includes('ember') || e.includes('fireball')) return 'fire';
+  if (e.includes('ice')    || e.includes('crystal') || e.includes('frost') || e.includes('snow')) return 'ice';
+  if (e.includes('lightning') || e.includes('bolt') || e.includes('electric') || e.includes('plasma')) return 'lightning';
+  if (e.includes('matrix') || e.includes('code') || e.includes('rain') || e.includes('glitch')) return 'matrix';
+  if (e.includes('confetti') || e.includes('sakura') || e.includes('petal') || e.includes('flower')) return 'confetti';
+  if (e.includes('smoke')  || e.includes('fog') || e.includes('mist') || e.includes('dust')) return 'smoke';
+  return 'burst';
+}
+
+function applyParamsJson(params) {
+  const skinName    = params.skinName || 'Unknown skin';
+  const effectType  = params.effectType || '';
+  const primaryHex  = params.primaryColor || params.fishColors?.[0]?.hex || '#6aa6ff';
+  const bgHex       = params.waterMaterial?.baseColor || params.backgroundColor || null;
+  const pCount      = params.particleCount
+    || params.splash?.particleCount
+    || params.ripple?.ringCount
+    || 25;
+
+  // Map effect
+  const mappedEffect = mapEffectType(effectType);
+  const sel = document.getElementById('select-effect');
+  sel.value = mappedEffect;
+  sel.dispatchEvent(new Event('change'));
+
+  // Apply colour
+  effectColor = primaryHex;
+  const picker = document.getElementById('input-effect-color');
+  picker.value = primaryHex;
+  // Show colour picker only for custom (reset to custom mode for colour)
+  if (mappedEffect === 'burst') {
+    sel.value = 'custom';
+    document.getElementById('input-effect-color').hidden = false;
+  }
+
+  // Apply background if params carry one
+  if (bgHex) {
+    bgColor = bgHex;
+    document.getElementById('input-bgcolor').value = bgHex;
+    bgType  = 'color';
+  }
+
+  // Particle count — clamp to slider range
+  const clamped = Math.max(5, Math.min(80, Math.round(Number(pCount))));
+  particleCount = clamped;
+  const slider = document.getElementById('input-particle-count');
+  slider.value = clamped;
+  document.getElementById('label-particle-count').textContent = clamped;
+
+  // Badge
+  const badge = document.getElementById('badge-skin');
+  badge.hidden  = false;
+  badge.textContent = skinName;
+  badge.title   = `effectType: ${effectType} → ${mappedEffect} | primaryColor: ${primaryHex}`;
+  badge.classList.add('active');
+}
+
+document.getElementById('btn-load-params').addEventListener('click', () => {
+  document.getElementById('input-params').click();
+});
+document.getElementById('input-params').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    try {
+      const params = JSON.parse(ev.target.result);
+      applyParamsJson(params);
+    } catch {
+      alert('Could not parse skin_params.json — make sure it is valid JSON.');
+    }
+  };
+  reader.readAsText(file);
+});
+
 // ============================================================
 // PAK UPLOAD PANEL
 // ============================================================

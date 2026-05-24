@@ -1,0 +1,124 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "cpro: Generate Interactive Skin",
+      "type": "shell",
+      "command": "npx tsx src/cli.ts ue pak generate \"./generated-skins/${input:skinName}\" --prompt \"${input:skinPrompt}\" --name \"${input:skinName}\"",
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "new"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "cpro: Inspect PAK file",
+      "type": "shell",
+      "command": "npx tsx src/cli.ts ue pak inspect \"${input:pakPath}\"",
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "new"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "cpro: Cook PAK",
+      "type": "shell",
+      "command": "npx tsx src/cli.ts ue pak cook \"${input:projectPath}\"",
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "cpro: Upload PAK to keyboard",
+      "type": "shell",
+      "command": "npx tsx src/cli.ts ue pak upload \"${input:pakUploadPath}\" --slot ${input:slotIndex}",
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "cpro: Open AI Skin Generator (web UI)",
+      "type": "shell",
+      "command": "npx tsx src/cli.ts serve --port 7777",
+      "group": "build",
+      "isBackground": true,
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "cpro: Interactive Preview",
+      "type": "shell",
+      "command": "npx tsx src/cli.ts ue pak preview --port 7779",
+      "group": "build",
+      "isBackground": true,
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "skinPrompt",
+      "type": "promptString",
+      "description": "Describe the interactive skin effect (what happens when keys are pressed)",
+      "default": "Neon plasma shockwave that ripples outward from every keypress"
+    },
+    {
+      "id": "skinName",
+      "type": "promptString",
+      "description": "Skin name — no spaces, e.g. PlasmaWave",
+      "default": "MySkin"
+    },
+    {
+      "id": "pakPath",
+      "type": "promptString",
+      "description": "Path to the .pak file to inspect",
+      "default": "dist/skin.pak"
+    },
+    {
+      "id": "projectPath",
+      "type": "promptString",
+      "description": "Path to the UE 4.27.2 project directory",
+      "default": "./generated-skins/MySkin"
+    },
+    {
+      "id": "pakUploadPath",
+      "type": "promptString",
+      "description": "Path to the .pak file to upload",
+      "default": "dist/skin.pak"
+    },
+    {
+      "id": "slotIndex",
+      "type": "pickString",
+      "description": "Keyboard slot to upload to (0–4)",
+      "options": ["0", "1", "2", "3", "4"],
+      "default": "0"
+    }
+  ]
+}
