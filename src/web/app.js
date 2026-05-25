@@ -127,19 +127,45 @@
     updatePreview(f);
   };
 
+  let urlProbeTimer = null;
   urlInput.addEventListener("input", () => {
     if (urlInput.value.trim() && currentFile) {
       currentFile = null;
       fileInput.value = "";
     }
-    if (urlInput.value.trim()) setStatus(`URL ready: ${urlInput.value.trim()}`);
+    const val = urlInput.value.trim();
+    if (val) setStatus(`URL ready: ${val}`);
     else setStatus("");
     refreshConvertEnabled();
+
+    // Debounced duration probe so the trim timeline appears for URLs
+    clearTimeout(urlProbeTimer);
+    if (val) {
+      urlProbeTimer = setTimeout(async () => {
+        try {
+          const res = await fetch("/api/probe-url", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url: val }),
+          });
+          const data = await res.json();
+          if (data.ok && data.duration) {
+            document.dispatchEvent(
+              new CustomEvent("cpro:urlDuration", { detail: { duration: data.duration } })
+            );
+          }
+        } catch { /* probe is best-effort */ }
+      }, 900);
+    } else {
+      document.dispatchEvent(new CustomEvent("cpro:urlDuration", { detail: { duration: 0 } }));
+    }
   });
   urlClear.addEventListener("click", () => {
     urlInput.value = "";
     setStatus("");
     refreshConvertEnabled();
+    clearTimeout(urlProbeTimer);
+    document.dispatchEvent(new CustomEvent("cpro:urlDuration", { detail: { duration: 0 } }));
   });
 
   pickBtn.addEventListener("click", () => fileInput.click());
@@ -568,6 +594,21 @@
   });
   const previewCompare = document.getElementById("preview-compare");
   if (previewCompare) observer.observe(previewCompare, { childList: true, subtree: true });
+
+  // Also activate timeline when a URL duration is probed
+  document.addEventListener("cpro:urlDuration", (e) => {
+    const dur = e.detail?.duration ?? 0;
+    if (dur > 0) {
+      videoDuration = dur;
+      startFrac = 0; endFrac = 1;
+      timelineWrap.hidden = false;
+      labelTotal.textContent = fmtTime(dur);
+      updateUI();
+    } else {
+      timelineWrap.hidden = true;
+      videoDuration = 0;
+    }
+  });
 })();
 
 // ── Device / HID slot panel ───────────────────────────────────────────────

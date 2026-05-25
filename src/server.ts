@@ -210,6 +210,38 @@ export async function startServer(opts: ServerOptions) {
     }
   });
 
+  // ── Probe URL duration (fast metadata fetch via yt-dlp) ─────────────────
+  app.post("/api/probe-url", async (req, reply) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const url = typeof body.url === "string" ? body.url.trim() : "";
+    if (!url) return reply.code(400).send({ ok: false, error: "url required" });
+    const bin = process.env.YTDLP_PATH || "yt-dlp";
+    return new Promise<void>((resolve) => {
+      execFile(
+        bin,
+        ["--dump-json", "--no-playlist", "--flat-playlist", url],
+        { timeout: 15_000 },
+        (err, stdout) => {
+          if (err) {
+            reply.send({ ok: false, error: "Could not probe URL" });
+          } else {
+            try {
+              const info = JSON.parse(stdout.split("\n").find(Boolean) ?? "{}");
+              reply.send({
+                ok: true,
+                duration: typeof info.duration === "number" ? info.duration : null,
+                title: typeof info.title === "string" ? info.title : null,
+              });
+            } catch {
+              reply.send({ ok: false, error: "Could not parse yt-dlp output" });
+            }
+          }
+          resolve();
+        },
+      );
+    });
+  });
+
   app.post("/api/convert-url", async (req, reply) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const url = typeof body.url === "string" ? body.url.trim() : "";
