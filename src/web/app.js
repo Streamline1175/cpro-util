@@ -77,6 +77,21 @@
     refreshPreview();
   };
 
+  const updateUrlPreview = (url) => {
+    const section = document.getElementById("preview-compare");
+    const stage = document.getElementById("preview-stage");
+    if (previewObjectUrl) { URL.revokeObjectURL(previewObjectUrl); previewObjectUrl = null; }
+    if (!url) { section.hidden = true; stage.innerHTML = ""; return; }
+    stage.innerHTML = "";
+    const vid = document.createElement("video");
+    vid.src = "/api/stream-url?url=" + encodeURIComponent(url);
+    vid.autoplay = true; vid.muted = true; vid.loop = true; vid.playsInline = true;
+    stage.appendChild(vid);
+    stage.appendChild(window.KBD.createOverlay());
+    section.hidden = false;
+    refreshPreview();
+  };
+
   // ── Keyboard overlay toggles ──────────────────────────────────────────────
   const compareSection = document.getElementById("preview-compare");
   const resultSection  = document.getElementById("result");
@@ -132,40 +147,45 @@
     if (urlInput.value.trim() && currentFile) {
       currentFile = null;
       fileInput.value = "";
+      updatePreview(null); // clear file preview immediately
     }
     const val = urlInput.value.trim();
     if (val) setStatus(`URL ready: ${val}`);
     else setStatus("");
     refreshConvertEnabled();
 
-    // Debounced duration probe so the trim timeline appears for URLs
     clearTimeout(urlProbeTimer);
-    if (val) {
-      urlProbeTimer = setTimeout(async () => {
-        try {
-          const res = await fetch("/api/probe-url", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ url: val }),
-          });
-          const data = await res.json();
-          if (data.ok && data.duration) {
-            document.dispatchEvent(
-              new CustomEvent("cpro:urlDuration", { detail: { duration: data.duration } })
-            );
-          }
-        } catch { /* probe is best-effort */ }
-      }, 900);
-    } else {
-      document.dispatchEvent(new CustomEvent("cpro:urlDuration", { detail: { duration: 0 } }));
+    if (!val) {
+      updateUrlPreview(null);
+      return;
     }
+
+    // Debounce: load live video preview + probe duration for trim timeline
+    urlProbeTimer = setTimeout(async () => {
+      // Load the actual video so the trim timeline has live scrub support
+      updateUrlPreview(val);
+      // Probe for a quick duration in case the video is slow to load metadata
+      try {
+        const res = await fetch("/api/probe-url", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: val }),
+        });
+        const data = await res.json();
+        if (data.ok && data.duration) {
+          document.dispatchEvent(
+            new CustomEvent("cpro:urlDuration", { detail: { duration: data.duration } })
+          );
+        }
+      } catch { /* probe is best-effort */ }
+    }, 700);
   });
   urlClear.addEventListener("click", () => {
     urlInput.value = "";
     setStatus("");
     refreshConvertEnabled();
     clearTimeout(urlProbeTimer);
-    document.dispatchEvent(new CustomEvent("cpro:urlDuration", { detail: { duration: 0 } }));
+    updateUrlPreview(null);
   });
 
   pickBtn.addEventListener("click", () => fileInput.click());

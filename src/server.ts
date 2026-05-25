@@ -210,6 +210,34 @@ export async function startServer(opts: ServerOptions) {
     }
   });
 
+  // ── Stream URL proxy (yt-dlp -g redirect so browser <video> can play it) ───
+  app.get("/api/stream-url", async (req, reply) => {
+    const query = req.query as Record<string, string>;
+    const url = query.url?.trim();
+    if (!url) return reply.code(400).send({ error: "url required" });
+    const bin = process.env.YTDLP_PATH || "yt-dlp";
+    return new Promise<void>((resolve) => {
+      execFile(
+        bin,
+        ["-g", "--no-playlist", "-f", "best[height<=480][ext=mp4]/best[height<=480]/best", url],
+        { timeout: 20_000 },
+        (err, stdout) => {
+          if (err) {
+            reply.code(502).send({ error: "Could not resolve stream URL" });
+          } else {
+            const streamUrl = stdout.split("\n").find((s) => s.trim())?.trim();
+            if (streamUrl) {
+              reply.code(302).header("Location", streamUrl).send();
+            } else {
+              reply.code(502).send({ error: "No stream URL returned" });
+            }
+          }
+          resolve();
+        },
+      );
+    });
+  });
+
   // ── Probe URL duration (fast metadata fetch via yt-dlp) ─────────────────
   app.post("/api/probe-url", async (req, reply) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
