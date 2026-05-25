@@ -70,7 +70,7 @@
     stage.innerHTML = "";
     const el = document.createElement(isVideo ? "video" : "img");
     el.src = previewObjectUrl;
-    if (isVideo) { el.autoplay = true; el.muted = true; el.loop = true; el.playsInline = true; }
+    if (isVideo) { el.autoplay = true; el.muted = true; el.playsInline = true; }
     stage.appendChild(el);
     stage.appendChild(window.KBD.createOverlay());
     section.hidden = false;
@@ -85,7 +85,7 @@
     stage.innerHTML = "";
     const vid = document.createElement("video");
     vid.src = "/api/stream-url?url=" + encodeURIComponent(url);
-    vid.autoplay = true; vid.muted = true; vid.loop = true; vid.playsInline = true;
+    vid.autoplay = true; vid.muted = true; vid.playsInline = true;
     stage.appendChild(vid);
     stage.appendChild(window.KBD.createOverlay());
     section.hidden = false;
@@ -599,6 +599,18 @@
         updateUI();
         // Sync from existing text input values (user may have typed something)
         syncFromInputs();
+        // Range-loop: replay within the selected slice instead of the whole video
+        vid.loop = false;
+        vid.addEventListener("timeupdate", () => {
+          if (videoDuration <= 0) return;
+          if (vid.currentTime >= endFrac * videoDuration - 0.05) {
+            vid.currentTime = startFrac * videoDuration;
+          }
+        });
+        vid.addEventListener("ended", () => {
+          vid.currentTime = startFrac * videoDuration;
+          vid.play().catch(() => {});
+        });
       };
       if (vid.readyState >= 1 && vid.duration) {
         onMeta();
