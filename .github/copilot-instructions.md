@@ -7,7 +7,8 @@
 1920 × 550 px display and an embedded GPU. Skins are either:
 
 - **Static skins** — PNG or H.264 MP4 files (handled by `cpro convert`)
-- **Interactive skins** — Unreal Engine 4.27.2 apps cooked to Android ASTC `.pak` files
+- **Interactive skins** — Unreal Engine 5.3 apps cooked to Android ASTC `.pak` files
+  (pak version 11 — the keyboard firmware requires v11; UE 5.4+ produces v12 which crashes)
   that react to keypresses in real time via Niagara particle effects
 
 ---
@@ -84,7 +85,7 @@ When generating `setup_interactive.py` for an interactive skin, always use
 **Niagara particle systems** as the primary effect mechanism. Sprite-sheet
 flipbooks are only a fallback.
 
-### Creating a Niagara system in Python (UE 4.27.2)
+### Creating a Niagara system in Python (UE 5.3)
 
 ```python
 import unreal
@@ -160,7 +161,7 @@ cpro serve   # then open http://localhost:7777/generate.html
 ```
 
 The generator (powered by Claude) produces:
-1. `Python/setup_interactive.py` — run in UE 4.27.2 editor Python console
+1. `Python/setup_interactive.py` — run in UE 5.3 editor Python console
 2. `skin_concept.md` — asset creation guide
 3. `skin_params.json` — effect parameters
 
@@ -171,7 +172,7 @@ Requires `ANTHROPIC_API_KEY` environment variable.
 ## CLI command reference
 
 ```bash
-cpro ue pak init <dir>                     # scaffold UE 4.27.2 project template
+cpro ue pak init <dir>                     # scaffold UE 5.3 project template
 cpro ue pak generate <dir> --prompt "…"   # AI-generate skin (requires ANTHROPIC_API_KEY)
 cpro ue pak inspect <pak>                  # show asset manifest from a .pak file
 cpro ue pak cook <project> -o dist/skin.pak

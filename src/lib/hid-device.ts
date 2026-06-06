@@ -7,6 +7,10 @@
  *   Device VID/PID : 0x361D : 0x0202
  *   Report length  : 1024 bytes
  *   Frame header   : [report_id=0x01, payload_len_low, payload_len_high, msg_type, ...payload]
+ *   0x12 OUT : enable ADB mode — triggers ADB authorization dialog on keyboard display
+ *              (community-reported opcode; ADB is still authorized so dialog must be accepted,
+ *               which is impossible without hardware mods since the keyboard has no touch input.
+ *               Use rootshelld on port 5557 instead for Android access.)
  *   0x30 OUT : slot switch  — 1-byte payload (try 1-based then 0-based)
  *   0x08 OUT : metadata request
  *   0x07 IN  : preview PNG chunks (chunk index in payload bytes 1-2)
@@ -168,6 +172,60 @@ export async function selectSlot(
     return { ok: true, slot: slotOneBased };
   } catch (err: any) {
     return { ok: false, slot: slotOneBased, error: String(err?.message ?? err) };
+  } finally {
+    safeClose(dev);
+  }
+}
+
+// ── ADB enable ───────────────────────────────────────────────────────────────
+
+export interface EnableAdbResult {
+  ok: boolean;
+  error?: string;
+  /**
+   * Whether ADB authorization is still required.
+   * The keyboard shows an ADB authorization dialog on its display, but the
+   * keyboard has no touch input. Authorization is impossible through software
+   * alone. Use rootshelld (port 5557) for Android shell access instead.
+   */
+  authorizationRequired: true;
+}
+
+/**
+ * Send the HID command that triggers ADB mode on the keyboard's Android system.
+ *
+ * This causes the keyboard to display an ADB authorization dialog. Because the
+ * keyboard has no touch input, there is no way to accept the dialog through
+ * software alone — ADB will remain in the unauthorized state.
+ *
+ * Practical use: if you have a pre-authorized ADB key on the device (via
+ * hardware UART access or a pre-loaded adb_keys file), send this command
+ * to bring up the ADB TCP listener.
+ *
+ * For general Android shell access, use rootshelld (port 5557) instead —
+ * see src/lib/android-device.ts.
+ *
+ * Opcode 0x12 is community-reported and not confirmed by Finalmouse.
+ */
+export async function enableAdbMode(): Promise<EnableAdbResult> {
+  const dev = await openControlDevice();
+  if (!dev) {
+    return {
+      ok: false,
+      authorizationRequired: true,
+      error: "Centerpiece keyboard not found via HID",
+    };
+  }
+  try {
+    dev.write(makeReport(0x12, Buffer.alloc(0)));
+    await sleep(200);
+    return { ok: true, authorizationRequired: true };
+  } catch (err: any) {
+    return {
+      ok: false,
+      authorizationRequired: true,
+      error: String(err?.message ?? err),
+    };
   } finally {
     safeClose(dev);
   }

@@ -3,12 +3,12 @@
  *
  * Interactive skin workflow for the Finalmouse Centerpiece keyboard.
  *
- * Wraps the UE 4.27.2 + Android SDK cook pipeline (RunUAT → .pak) and the
+ * Wraps the UE 5.7 + Android SDK cook pipeline (RunUAT → .pak) and the
  * pak-upload step that pushes the skin to a keyboard slot, bypassing the
  * Finalmouse website's community-upload restriction.
  *
  * Workflow summary (derived from the community tutorial):
- *   1. cpro ue pak init <dir>          – scaffold UE 4.27.2 project template
+ *   1. cpro ue pak init <dir>          – scaffold UE 5.7 project template
  *   2. (open in VS 2019, build dummy plugin, open .uproject, author skin)
  *   3. cpro ue pak cook <project>      – RunUAT cook → .pak
  *   4. cpro ue pak upload <pak> -s <n> – push to keyboard slot n
@@ -17,7 +17,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { mkdir, cp, readFile, writeFile, stat } from "node:fs/promises";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { lookup as dnsLookup } from "node:dns/promises";
 import { createReadStream } from "node:fs";
@@ -43,7 +43,7 @@ export interface PakInitOptions {
 }
 
 /**
- * Copy the UE 4.27.2 interactive skin template into `targetDir`.
+ * Copy the UE 5.7 interactive skin template into `targetDir`.
  * The caller still needs to:
  *   1. Obtain and build UE 4.27.2 from source (+ Android SDK)
  *   2. Open the .uproject, switch engine to the source build
@@ -69,13 +69,13 @@ export async function initInteractiveProject(opts: PakInitOptions): Promise<stri
 // ---------------------------------------------------------------------------
 
 export interface PakCookOptions {
-  /** Path to the UE 4.27.2 project directory (contains .uproject). */
+  /** Path to the UE project directory (contains .uproject). */
   projectDir: string;
   /**
-   * Root of the UE 4.27.2 source build.
-   * Falls back to `UE427_ROOT` / `UE_ROOT` env vars, then common install paths.
+   * Root of the UE install or source build.
+   * Falls back to `UE_ROOT` / `UE5_ROOT` / `UE427_ROOT` env vars, then common install paths.
    */
-  ue427Path?: string;
+  uePath?: string;
   /**
    * Where to place the final .pak.  Defaults to <projectDir>/dist/skin.pak.
    */
@@ -93,60 +93,97 @@ export async function cookPak(opts: PakCookOptions): Promise<PakCookResult> {
   const uproject = findUProject(projectDir);
   if (!uproject) throw new Error(`No .uproject found in ${projectDir}`);
 
-  const ueRoot = resolveUe427Root(opts.ue427Path);
-  const runUat = resolveRunUat(ueRoot);
+  const ueRoot = resolveUeRoot(opts.uePath);
+  const projectName = basename(uproject, ".uproject");
 
-  // Output directory for staged build
-  const stageDir = join(projectDir, "Saved", "StagedBuilds");
-
-  const args = [
-    "BuildCookRun",
-    `-project=${uproject}`,
-    "-platform=Android_ASTC",
-    "-clientconfig=Development",
-    "-cook",
-    "-pak",
-    "-stage",
-    `-stagingdirectory=${stageDir}`,
+  // Step 1: Cook content for Android by calling the cook commandlet directly.
+  // We bypass RunUAT entirely because UAT always tries to compile Android
+  // client binaries (requires NDK) even when only cooking is needed.
+  const unrealEditorCmd = resolveUnrealEditorCmd(ueRoot);
+  const cookLogPath = join(projectDir, "Saved", "Logs", "Cook-Android.txt");
+  const cookArgs = [
+    uproject,
+    "-run=Cook",
+    "-TargetPlatform=Android",
+    "-unversioned",
+    `-abslog=${cookLogPath}`,
+    "-stdout",
     "-unattended",
-    "-nop4",
-    "-NoXGE",
-    "-utf8output",
-    // Skip full compile — user already built the plugin in VS
-    "-nocompileeditor",
-    "-skipbuildeditor",
+    "-NoLogTimes",
   ];
 
-  opts.onLog?.(`→ RunUAT: ${runUat} ${args.slice(0, 3).join(" ")} …`);
-  await runCmd(runUat, args, {}, opts.onLog);
+  opts.onLog?.(`→ Cook: ${unrealEditorCmd} -run=Cook -TargetPlatform=Android …`);
+  await mkdir(join(projectDir, "Saved", "Logs"), { recursive: true });
+  await runCmd(unrealEditorCmd, cookArgs, {}, opts.onLog);
 
-  // Locate the generated .pak
-  const projectName = basename(uproject, ".uproject");
-  const pakGlob = join(stageDir, "Android_ASTC", projectName, "Content", "Paks");
-  const pak = findPakFile(pakGlob) ?? findPakFile(join(stageDir, "Android_ASTC", "Content", "Paks"));
-  if (!pak) {
+  // Step 2: Pack the cooked content with UnrealPak directly.
+  const cookedDir = join(projectDir, "Saved", "Cooked", "Android", projectName);
+  if (!existsSync(cookedDir)) {
     throw new Error(
-      `Cook completed but no .pak found under ${pakGlob}. ` +
-        "Try running File → Package Project → Android (ASTC) once from the editor first.",
+      `Cook completed but cooked directory not found: ${cookedDir}\n` +
+        "Make sure the project opened and saved all maps in the UE editor first.",
     );
   }
 
   const outPath = resolve(opts.outPath ?? join(projectDir, "dist", "skin.pak"));
   await mkdir(dirname(outPath), { recursive: true });
 
-  // Copy to output
-  const { size } = await stat(pak);
-  await cp(pak, outPath);
+  opts.onLog?.(`→ Packing ${cookedDir} with UnrealPak …`);
+  await runUnrealPak(ueRoot, cookedDir, projectName, outPath, opts.onLog);
 
+  const { size } = await stat(outPath);
   return { pakPath: outPath, bytes: size };
 }
 
-function findPakFile(dir: string): string | null {
-  if (!existsSync(dir)) return null;
-  for (const f of readdirSync(dir)) {
-    if (f.endsWith(".pak")) return join(dir, f);
+function resolveUnrealEditorCmd(ueRoot: string): string {
+  const p =
+    process.platform === "win32"
+      ? join(ueRoot, "Engine", "Binaries", "Win64", "UnrealEditor-Cmd.exe")
+      : join(ueRoot, "Engine", "Binaries", "Mac", "UnrealEditor-Cmd");
+  if (!existsSync(p)) throw new Error(`UnrealEditor-Cmd not found at ${p}`);
+  return p;
+}
+
+function resolveUnrealPak(ueRoot: string): string {
+  const p =
+    process.platform === "win32"
+      ? join(ueRoot, "Engine", "Binaries", "Win64", "UnrealPak.exe")
+      : join(ueRoot, "Engine", "Binaries", "Mac", "UnrealPak");
+  if (!existsSync(p)) throw new Error(`UnrealPak not found at ${p}`);
+  return p;
+}
+
+function collectFiles(dir: string): string[] {
+  const results: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) results.push(...collectFiles(full));
+    else results.push(full);
   }
-  return null;
+  return results;
+}
+
+async function runUnrealPak(
+  ueRoot: string,
+  cookedDir: string,
+  projectName: string,
+  outPath: string,
+  onLog?: (line: string) => void,
+): Promise<void> {
+  const unrealPak = resolveUnrealPak(ueRoot);
+  const files = collectFiles(cookedDir);
+  if (files.length === 0) throw new Error(`No cooked files found in ${cookedDir}`);
+
+  // UnrealPak response file: "<source>" "<virtual_mount_path>"
+  const lines = files.map((f) => {
+    const rel = relative(cookedDir, f).replace(/\\/g, "/");
+    return `"${f}" "../../../${projectName}/${rel}"`;
+  });
+  const responseFile = join(dirname(outPath), "pak_response.txt");
+  await writeFile(responseFile, lines.join("\n") + "\n");
+
+  onLog?.(`  Including ${files.length} cooked files → ${outPath}`);
+  await runCmd(unrealPak, [outPath, `-Create=${responseFile}`, "-compress"], {}, onLog);
 }
 
 // ---------------------------------------------------------------------------
@@ -297,34 +334,52 @@ export async function discoverKeyboardHost(): Promise<KeyboardDiscoveryResult> {
 }
 
 // ---------------------------------------------------------------------------
-// UE 4.27.2 resolution
+// UE root resolution (supports UE 4.27.2 and UE 5.x)
 // ---------------------------------------------------------------------------
 
-export function resolveUe427Root(hint?: string): string {
+export function resolveUeRoot(hint?: string): string {
   const candidates: string[] = [];
   if (hint) candidates.push(hint);
 
-  const envRoot = process.env.UE427_ROOT ?? process.env.UE_ROOT;
+  const envRoot =
+    process.env.UE_ROOT ??
+    process.env.UE5_ROOT ??
+    process.env.UE427_ROOT;
   if (envRoot) candidates.push(envRoot);
 
-  // Common install paths for source builds
+  // Common install paths — launcher installs first, then source build defaults
   if (process.platform === "win32") {
     candidates.push(
-      "C:\\UnrealEngine",
-      "C:\\UE_4.27",
+      "C:\\Program Files\\Epic Games\\UE_5.5",
+      "C:\\Program Files\\Epic Games\\UE_5.4",
+      "C:\\Program Files\\Epic Games\\UE_5.3",
       "C:\\Program Files\\Epic Games\\UE_4.27",
+      "C:\\UnrealEngine",
+      "C:\\UE_5.5",
+      "C:\\UE_4.27",
       "D:\\UnrealEngine",
     );
   } else if (process.platform === "darwin") {
     candidates.push(
-      "/Users/Shared/UnrealEngine",
+      // UE 5.3 is the newest version that produces pak v11 (required by keyboard firmware).
+      // Newer versions (5.4+) produce pak v12 which the keyboard cannot load.
+      "/Users/Shared/Epic Games/UE_5.3",
+      "/Users/Shared/Epic Games/UE_5.2",
+      "/Users/Shared/Epic Games/UE_5.1",
+      "/Users/Shared/Epic Games/UE_5.7",
+      "/Users/Shared/Epic Games/UE_5.5",
+      "/Users/Shared/Epic Games/UE_5.4",
       "/Users/Shared/Epic Games/UE_4.27",
+      "/Users/Shared/UnrealEngine",
       `${process.env.HOME}/UnrealEngine`,
+      `${process.env.HOME}/UE_5.3`,
+      `${process.env.HOME}/UE_5.7`,
     );
   } else {
     candidates.push(
       "/opt/UnrealEngine",
       `${process.env.HOME}/UnrealEngine`,
+      `${process.env.HOME}/UE_5.5`,
     );
   }
 
@@ -333,9 +388,10 @@ export function resolveUe427Root(hint?: string): string {
   }
 
   throw new Error(
-    "Could not locate UE 4.27.2 source build.\n" +
-      "Pass --ue-path <root> or set UE427_ROOT to the engine root directory\n" +
-      "(the folder that contains Engine/, e.g. ~/UnrealEngine).",
+    "Could not locate an Unreal Engine installation.\n" +
+      "Pass --ue-path <root> or set UE_ROOT to the engine root directory\n" +
+      "(the folder that contains Engine/, e.g. /Users/Shared/Epic Games/UE_5.5).\n" +
+      "For UE5 on macOS, install via the Epic Games Launcher.",
   );
 }
 

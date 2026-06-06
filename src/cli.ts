@@ -22,7 +22,7 @@ import {
   initInteractiveProject as uePakInit,
   cookPak,
   uploadPak,
-  resolveUe427Root,
+  resolveUeRoot,
 } from "./lib/ue-pak.js";
 import { inspectPak } from "./lib/pak-inspect.js";
 import { generateSkin } from "./lib/ai-generate.js";
@@ -33,9 +33,26 @@ import {
   pullSlotPreview,
   pullAllPreviews,
   verifySlotUpload,
+  enableAdbMode,
   CENTERPIECE_VID,
   CENTERPIECE_PID,
 } from "./lib/hid-device.js";
+import {
+  probeRootShell,
+  getDeviceInfo,
+  listInstalledSkins,
+  streamLogcat,
+  pushPakViaShell,
+  authorizeAdbKey,
+  ROOTSHELLD_PORT,
+  ANDROID_SKIN_PATHS,
+  SOM_MODEL,
+  SOC_CHIP,
+  ANDROID_VERSION,
+  UART_BAUD_RATE,
+  UART_BRIDGE_RESISTORS,
+  MCU_RECOVERY_INSTRUCTIONS,
+} from "./lib/android-device.js";
 const program = new Command();
 program
   .name("cpro")
@@ -293,18 +310,18 @@ ue
   });
 
 // ---------------------------------------------------------------------------
-// ue pak — interactive skin workflow (UE 4.27.2 + Android SDK → .pak upload)
+// ue pak — interactive skin workflow (UE 5.x + Android SDK → .pak upload)
 // ---------------------------------------------------------------------------
 const uePak = ue
   .command("pak")
   .description(
-    "Interactive skin workflow: UE 4.27.2 + Android SDK → .pak → keyboard upload",
+    "Interactive skin workflow: UE 5.x + Android SDK → .pak → keyboard upload",
   );
 
 uePak
   .command("init")
   .description(
-    "Scaffold a UE 4.27.2 interactive skin project (dummy CpSkinAPI plugin + Python setup)",
+    "Scaffold a UE 5.x interactive skin project (dummy CpSkinAPI plugin + Python setup)",
   )
   .argument("<dir>", "target directory for the new project")
   .action(async (dir: string) => {
@@ -314,10 +331,10 @@ uePak
     console.log();
     console.log("  Next steps:");
     console.log("  1. Install Android Studio SDK components (see ue-interactive-template/README.md)");
-    console.log("  2. Build UE 4.27.2 from source with VS 2019 (set UE427_ROOT env var)");
+    console.log("  2. Install UE 5.x via the Epic Games Launcher (set UE_ROOT env var if needed)");
     console.log(`  3. Right-click ${abs}/CpInteractiveSkin.uproject`);
-    console.log("     → Switch Unreal Engine Version → select source build");
-    console.log("  4. Open the .sln in VS 2019 → Build CpInteractiveSkin (compiles dummy plugin)");
+    console.log("     → Switch Unreal Engine Version → select your UE 5.x install");
+    console.log("  4. Open .uproject → allow it to rebuild the CpSkinAPI plugin");
     console.log("  5. Open .uproject → run Python/setup_interactive.py from the editor console");
     console.log("  6. Author your skin → then: cpro ue pak cook " + abs);
   });
@@ -325,13 +342,13 @@ uePak
 uePak
   .command("cook")
   .description(
-    "Cook a UE 4.27.2 interactive skin project to a .pak file via RunUAT (Android ASTC)",
+    "Cook a UE 5.x interactive skin project to a .pak file via RunUAT (Android ASTC)",
   )
-  .argument("<project>", "path to a UE 4.27.2 interactive skin project directory")
-  .option("-o, --out <file>", "output .pak path", "dist/skin.pak")
+  .argument("<project>", "path to a UE 5.x interactive skin project directory")
+  .option("-o, --out <file>", "output .pak path (default: <project>/dist/skin.pak)")
   .option(
     "--ue-path <root>",
-    "UE 4.27.2 source-build root (or set UE427_ROOT env var)",
+    "UE install root (or set UE_ROOT env var)",
   )
   .action(async (projectDir: string, opts) => {
     if (!existsSync(projectDir)) exitError(`Project not found: ${projectDir}`);
@@ -339,22 +356,22 @@ uePak
     // Validate UE root early for a clear error message
     let ueRoot: string;
     try {
-      ueRoot = resolveUe427Root(opts.uePath);
+      ueRoot = resolveUeRoot(opts.uePath);
     } catch (e: any) {
       exitError(e.message);
     }
 
-    const outPath = resolve(opts.out as string);
+    const outPath = opts.out ? resolve(opts.out as string) : undefined;
     console.log(`→ Cooking interactive skin (Android ASTC)`);
     console.log(`  Project : ${resolve(projectDir)}`);
     console.log(`  UE root : ${ueRoot!}`);
-    console.log(`  Output  : ${outPath}`);
+    if (outPath) console.log(`  Output  : ${outPath}`);
     console.log("  (This may take several minutes on first cook — shaders must compile)");
 
     const result = await cookPak({
       projectDir,
       outPath,
-      ue427Path: opts.uePath,
+      uePath: opts.uePath,
       onLog: (line) => {
         if (/error|warning|cook|pak|LogInit|LogAndroid/i.test(line)) {
           console.log(`  ${line}`);
@@ -433,12 +450,22 @@ uePak
   .description("Show the asset manifest embedded in a cooked .pak file")
   .argument("<pak>", "path to a .pak file")
   .option("--json", "output raw JSON instead of human-readable table")
+  .option("--api", "output only the extracted SkinCreatorLibrary API surface as JSON")
   .action(async (pakPath: string, opts) => {
     const abs = resolve(pakPath);
     if (!existsSync(abs)) exitError(`PAK not found: ${abs}`);
 
     console.log(`→ Inspecting ${abs}…`);
     const manifest = await inspectPak(abs);
+
+    if (opts.api) {
+      if (!manifest.skinCreatorApi) {
+        exitError("No SkinCreatorLibrary / CpSkinAPI references found in this pak.\n" +
+          "  Try a stock Finalmouse skin pak (e.g. from your keyboard's slot backups).");
+      }
+      console.log(JSON.stringify(manifest.skinCreatorApi, null, 2));
+      return;
+    }
 
     if (opts.json) {
       console.log(JSON.stringify(manifest, null, 2));
@@ -448,6 +475,21 @@ uePak
     const mb = (manifest.fileSize / 1024 / 1024).toFixed(2);
     console.log(`\nPAK: ${abs}  (${mb} MB)\n`);
 
+    // Version check — keyboard requires pak v11 (UE 5.3)
+    if (manifest.pakVersion !== null) {
+      const versionLine = `  PAK version   : ${manifest.pakVersion}`;
+      if (manifest.pakVersionUnsupported) {
+        console.log(`${versionLine}  ⚠  UNSUPPORTED (keyboard requires v11 / UE 5.3)`);
+        console.log("  ↳ This pak was cooked with UE 5.4+ which produces v12.");
+        console.log("    The Finalmouse skin engine will crash when loading it.");
+        console.log("    Re-cook with UE 5.3 to produce a compatible pak.");
+      } else {
+        console.log(`${versionLine}  ✓`);
+      }
+    } else {
+      console.log("  PAK version   : (could not read footer)");
+    }
+
     if (manifest.skinFolder) {
       console.log(`  Skin folder   : ${manifest.skinFolder}`);
     }
@@ -456,6 +498,42 @@ uePak
     }
     if (manifest.plugins.length) {
       console.log(`  Plugins       : ${manifest.plugins.join(", ")}`);
+    }
+
+    // SkinCreatorLibrary API surface
+    const api = manifest.skinCreatorApi;
+    if (api) {
+      console.log(`\n  Skin Creator API  (${api.className}):`);
+      const stubStatus = api.matchesKnownStub
+        ? "✓ matches community stub exactly"
+        : "⚠ differs from known stub — SDK may have been updated";
+      console.log(`    ${stubStatus}`);
+
+      if (api.functions.length) {
+        console.log(`\n    Functions (${api.functions.length}):`);
+        for (const fn of api.functions) {
+          const ret = fn.returnType ?? "void";
+          const params = fn.params.map((p) => `${p.type} ${p.name}`).join(", ");
+          console.log(`      ${ret} ${fn.name}(${params})`);
+        }
+      }
+
+      if (api.delegates.length) {
+        console.log(`\n    Delegates (${api.delegates.length}):`);
+        for (const del of api.delegates) {
+          const params = del.params.map((p) => `${p.type} ${p.name}`).join(", ");
+          console.log(`      ${del.name}(${params})`);
+        }
+      }
+
+      if (!api.matchesKnownStub) {
+        console.log(
+          "\n    New entries detected — update the CpSkinAPI stub to match:\n" +
+          "    ue-interactive-template/Plugins/CpSkinAPI/Source/CpSkinAPI/Public/",
+        );
+      }
+    } else {
+      console.log("\n  Skin Creator API  : not found (static skin or no Blueprint references)");
     }
 
     console.log(`\n  Game assets (${manifest.gameAssets.length}):`);
@@ -561,7 +639,7 @@ uePak
     console.log();
     console.log("  Next steps:");
     console.log("  1. Read skin_concept.md for the asset creation guide");
-    console.log(`  2. Open ${target}/CpInteractiveSkin.uproject in UE 4.27.2`);
+    console.log(`  2. Open ${target}/CpInteractiveSkin.uproject in UE 5.x`);
     console.log("  3. Run Python/setup_interactive.py from the UE Python console");
     console.log(`  4. cpro ue pak cook ${target}`);
     console.log(`  5. cpro ue pak upload dist/skin.pak --slot 0`);
@@ -746,8 +824,250 @@ ytdlp
     }).catch((e) => exitError(e.message));
   });
 
+// ---------------------------------------------------------------------------
+// device — Android-side access via rootshelld (TCP port 5557)
+//
+// The Finalmouse Centerpiece runs Android 11 on a Rockchip RK3566 SOM
+// (Firefly Core-3566JD4). Reverse engineering by nun.tax revealed an
+// unauthenticated root shell service (rootshelld) on TCP port 5557 that
+// was not removed before shipping. These commands use that shell to
+// inspect and manage the Android side of the keyboard.
+//
+// Reference: https://nun.tax/blog/reverse-engineering-the-centerpiece-pro/
+// ---------------------------------------------------------------------------
+const device = program
+  .command("device")
+  .description(
+    "Android-side tools via rootshelld (TCP port 5557, no auth required)\n" +
+    "  Requires the keyboard to be on the same LAN. Use --host <ip> if mDNS fails.",
+  );
+
+device
+  .command("info")
+  .description("Show Android system info (OS version, hardware, ADB state) from the keyboard")
+  .option("--host <ip>", "keyboard IP (auto-discovers via mDNS if omitted)")
+  .action(async (opts) => {
+    const host = opts.host ?? (await discoverKeyboardHostOrExit());
+    console.log(`→ Connecting to rootshelld at ${host}:${ROOTSHELLD_PORT}…`);
+
+    const available = await probeRootShell(host);
+    if (!available) {
+      exitError(
+        `rootshelld not reachable at ${host}:${ROOTSHELLD_PORT}.\n` +
+        "  Make sure the keyboard is on and on the same network.\n" +
+        "  Note: rootshelld is a debug service that may be removed in future firmware.",
+      );
+    }
+
+    console.log("✓ rootshelld connected\n");
+    const info = await getDeviceInfo(host);
+
+    console.log(`  Android version : ${info.buildVersion || "(unknown)"}`);
+    console.log(`  SDK level       : ${info.sdkVersion || "(unknown)"}`);
+    console.log(`  Device model    : ${info.deviceModel || "(unknown)"}`);
+    console.log(`  CPU ABI         : ${info.cpuAbi || "(unknown)"}`);
+    if (info.uptimeSeconds !== null) {
+      const h = Math.floor(info.uptimeSeconds / 3600);
+      const m = Math.floor((info.uptimeSeconds % 3600) / 60);
+      console.log(`  Uptime          : ${h}h ${m}m`);
+    }
+    console.log(`  ro.adb.secure   : ${info.adbSecure || "(unknown)"}`);
+    if (info.adbSecure === "0") {
+      console.log("    ↳ ADB is unauthenticated on this device");
+    } else {
+      console.log("    ↳ ADB requires authorization (use rootshelld instead)");
+    }
+    if (info.buildFingerprint) {
+      console.log(`  Build           : ${info.buildFingerprint}`);
+    }
+  });
+
+device
+  .command("skins")
+  .description("List interactive skin .pak files installed on the keyboard's Android system")
+  .option("--host <ip>", "keyboard IP (auto-discovers via mDNS if omitted)")
+  .action(async (opts) => {
+    const host = opts.host ?? (await discoverKeyboardHostOrExit());
+    console.log(`→ Listing skins on ${host} via rootshelld…`);
+
+    const skins = await listInstalledSkins(host);
+    if (skins.length === 0) {
+      console.log("  No .pak files found in known skin directories:");
+      for (const p of ANDROID_SKIN_PATHS) console.log(`    ${p}`);
+      return;
+    }
+
+    console.log(`\n  Found ${skins.length} skin(s):\n`);
+    for (const s of skins) {
+      const slotStr = s.slot !== null ? `slot ${s.slot}` : "?    ";
+      const mb = s.sizeBytes ? ` (${(s.sizeBytes / 1024 / 1024).toFixed(1)} MB)` : "";
+      console.log(`  [${slotStr}]  ${s.filename}${mb}`);
+      console.log(`          ${s.path}`);
+    }
+  });
+
+device
+  .command("logs")
+  .description("Stream Unreal Engine / skin engine logcat from the keyboard in real time")
+  .option("--host <ip>", "keyboard IP (auto-discovers via mDNS if omitted)")
+  .option("--filter <spec>", "logcat filter spec", "LogPython:* LogBlueprint:* LogNiagara:* SkinEngine:* *:E")
+  .option("--duration <ms>", "stop after N milliseconds (omit to run until Ctrl+C)")
+  .action(async (opts) => {
+    const host = opts.host ?? (await discoverKeyboardHostOrExit());
+    console.log(`→ Streaming logcat from ${host}:${ROOTSHELLD_PORT} (Ctrl+C to stop)\n`);
+
+    const s = streamLogcat(host, (line) => console.log(line), opts.filter);
+
+    if (opts.duration) {
+      setTimeout(() => { s.stop(); process.exit(0); }, Number(opts.duration));
+    }
+
+    process.on("SIGINT", () => { s.stop(); process.exit(0); });
+    // Keep process alive
+    await new Promise(() => {});
+  });
+
+device
+  .command("push")
+  .description(
+    "Push a .pak file directly to the Android skin directory via rootshelld\n" +
+    "  Alternative to HTTP upload — works without the Finalmouse HTTP skin server.",
+  )
+  .argument("<pak>", "path to the cooked .pak file")
+  .requiredOption("-s, --slot <n>", "target slot (0–4)", "0")
+  .option("--host <ip>", "keyboard IP (auto-discovers via mDNS if omitted)")
+  .option("--skin-dir <path>", "Android destination directory", ANDROID_SKIN_PATHS[0])
+  .action(async (pakPath: string, opts) => {
+    const abs = resolve(pakPath);
+    if (!existsSync(abs)) exitError(`PAK not found: ${abs}`);
+
+    const slot = Math.max(0, Math.min(4, Number(opts.slot)));
+    const host = opts.host ?? (await discoverKeyboardHostOrExit());
+
+    console.log(`→ Pushing ${abs} → ${host} slot ${slot} via rootshelld`);
+    console.log("  (Uses nc relay — requires netcat on the Android side)");
+
+    const result = await pushPakViaShell(host, abs, slot, {
+      skinDir: opts.skinDir,
+      onProgress: renderProgress,
+    });
+    process.stdout.write("\n");
+
+    if (result.ok) {
+      console.log(`✓ Pushed to ${result.destPath}`);
+      console.log("  Restart the skin engine or switch slots to apply.");
+    } else {
+      exitError(`Push failed: ${result.error}`);
+    }
+  });
+
+device
+  .command("enable-adb")
+  .description(
+    "Send the HID command that triggers ADB mode on the keyboard's Android system\n" +
+    "  Note: The keyboard shows an ADB auth dialog but has no touch input — you\n" +
+    "  cannot accept it through software. Use 'cpro device info/logs/skins' instead.",
+  )
+  .action(async () => {
+    const connected = await isConnected();
+    if (!connected) {
+      exitError("Centerpiece not found via HID (USB). Plug in the keyboard and try again.");
+    }
+    console.log("→ Sending ADB enable HID command (opcode 0x12, community-reported)…");
+    const result = await enableAdbMode();
+    if (!result.ok) exitError(result.error ?? "HID write failed");
+
+    console.log("✓ ADB enable command sent");
+    console.log();
+    console.log("  The keyboard display may show an ADB authorization prompt.");
+    console.log("  Because the keyboard has no touch input you cannot accept it");
+    console.log("  through software — ADB will remain unauthorized.");
+    console.log();
+    console.log("  For Android shell access without hardware mods, use:");
+    console.log("    cpro device info    — query Android system properties");
+    console.log("    cpro device logs    — stream logcat");
+    console.log("    cpro device skins   — list installed skins");
+    console.log();
+    console.log("  Full ADB requires bridging resistors R70+R71 (UART → pre-auth key).");
+    console.log("  Guide: https://nun.tax/blog/reverse-engineering-the-centerpiece-pro/");
+  });
+
+device
+  .command("authorize-adb")
+  .description(
+    "Pre-authorize your ADB key on the keyboard via rootshelld — enables software-only ADB\n" +
+    "  Writes your ~/.android/adbkey.pub to /data/misc/adb/adb_keys on the keyboard,\n" +
+    "  then run 'cpro device enable-adb' to trigger the ADB listener. No hardware mods needed.",
+  )
+  .option("--host <ip>", "keyboard IP (auto-discovers via mDNS if omitted)")
+  .option("--key <file>", "ADB public key file (default: ~/.android/adbkey.pub)")
+  .action(async (opts) => {
+    const host = opts.host ?? (await discoverKeyboardHostOrExit());
+    console.log(`→ Connecting to rootshelld at ${host}:${ROOTSHELLD_PORT}…`);
+
+    const available = await probeRootShell(host);
+    if (!available) {
+      exitError(
+        `rootshelld not reachable at ${host}:${ROOTSHELLD_PORT}.\n` +
+        "  Ensure the keyboard is on the same network and rootshelld is running.",
+      );
+    }
+
+    console.log("✓ rootshelld connected");
+    console.log("→ Writing ADB public key to keyboard…");
+
+    const result = await authorizeAdbKey(host, opts.key);
+    if (!result.ok) {
+      exitError(result.error ?? "Failed to write ADB key");
+    }
+
+    console.log("✓ ADB key written to /data/misc/adb/adb_keys");
+    console.log();
+    console.log("  Next — enable ADB and connect:");
+    console.log("    1. cpro device enable-adb    (triggers ADB listener via HID)");
+    console.log("    2. adb connect <keyboard-ip>:5555");
+    console.log("       (or the port shown after enabling — typically 5555)");
+    console.log();
+    console.log("  Your key is pre-authorized so no dialog needs to be accepted.");
+    console.log(`  Key: ${result.publicKey?.slice(0, 48)}…`);
+  });
+
+device
+  .command("mcu-recovery")
+  .description("Show instructions for entering MCU recovery mode (dump/flash MCU firmware)")
+  .action(() => {
+    console.log("MCU Recovery Mode — Centerpiece Pro\n");
+    console.log("  The MCU (keyboard logic microcontroller) ships with a built-in bootloader");
+    console.log("  that exposes the flash for reading and writing when in recovery mode.");
+    console.log("  This does not require JTAG or any hardware modifications.\n");
+    console.log("  To enter recovery mode:");
+    console.log(`    ${MCU_RECOVERY_INSTRUCTIONS}\n`);
+    console.log("  Once in recovery mode, the MCU flash is accessible via USB.");
+    console.log("  Use your MCU vendor's DFU or recovery tool to read/write firmware.\n");
+    console.log("  Hardware reference:");
+    console.log(`    SOM  : ${SOM_MODEL} (${SOC_CHIP})`);
+    console.log(`    OS   : Android ${ANDROID_VERSION}`);
+    console.log(`    UART : ${UART_BAUD_RATE.toLocaleString()} baud`);
+    console.log(`           Bridge resistors ${UART_BRIDGE_RESISTORS.join(" + ")} for serial access`);
+    console.log();
+    console.log("  Further reading:");
+    console.log("    https://nun.tax/blog/reverse-engineering-the-centerpiece-pro/");
+    console.log("    https://wiki.t-firefly.com/en/Core-3566JD4/");
+  });
+
+async function discoverKeyboardHostOrExit(): Promise<string> {
+  const { discoverKeyboard } = await import("./lib/ue-pak.js");
+  try {
+    return await discoverKeyboard();
+  } catch (e: any) {
+    exitError(
+      `Could not discover keyboard on the network: ${e.message}\n` +
+      "  Pass --host <keyboard-ip> to specify the address explicitly.",
+    );
+  }
+}
+
 program.parseAsync().catch((e) => {
-  console.error("Error:", e.message || e);
   process.exit(1);
 });
 

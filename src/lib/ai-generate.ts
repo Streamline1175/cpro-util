@@ -7,7 +7,7 @@
  * Given a plain-English description of the desired visual effect, the model
  * returns:
  *  • setup_interactive.py  — drop-in replacement for the template scaffolder,
- *                            ready to run from the UE 4.27.2 Python console
+ *                            ready to run from the UE 5.x Python console
  *  • skin_concept.md       — human-readable breakdown of assets to create and
  *                            how the effect works
  *  • skin_params.json      — machine-readable parameters for the skin
@@ -23,7 +23,7 @@ import type { PakInspectResult } from "./pak-inspect.js";
 // ---------------------------------------------------------------------------
 
 const SYSTEM_PROMPT = `\
-You are an expert Unreal Engine 4.27.2 developer specialising in interactive
+You are an expert Unreal Engine 5.7 developer specialising in interactive
 skins for the Finalmouse Centerpiece Pro mechanical keyboard.
 
 == HARDWARE PROFILE ==
@@ -58,7 +58,7 @@ World-space conversion (centre the canvas):
 Niagara particle systems are the correct technique for key-press effects.
 Sprite-sheet flipbooks are only a fallback when no particle physics is needed.
 
-NIAGARA PYTHON CREATION (UE 4.27.2):
+NIAGARA PYTHON CREATION (UE 5.7):
   factory = unreal.NiagaraSystemFactoryNew()
   tools   = unreal.AssetToolsHelpers.get_asset_tools()
   ns      = tools.create_asset("NS_KeyHit", skin_folder,
@@ -147,7 +147,7 @@ LIGHTNING TENDRILS:
 • Print progress with unreal.log("[cpro-generate] …").
 • After creating NS_KeyHit, call unreal.log() with EXPLICIT instructions
   on which Niagara modules to add in the editor and what values to set —
-  the Python API cannot set internal emitter modules directly in UE 4.27.
+  the Python API cannot set internal emitter modules directly in UE 5.x.
 • End with main() guarded by if __name__ == "__main__": main().
 • Never reference external files or URLs.
 
@@ -369,6 +369,33 @@ function buildUserMessage(opts: GenerateSkinOptions): string {
         lines.push(`    … and ${pak.gameAssets.length - 40} more`);
     }
     if (pak.plugins.length) lines.push(`  Plugins: ${pak.plugins.join(", ")}`);
+
+    // Include the extracted SDK API surface — this is the most valuable part.
+    // The AI gets ground-truth function/delegate signatures directly from the pak
+    // rather than relying solely on the hardcoded system prompt stub.
+    if (pak.skinCreatorApi) {
+      const api = pak.skinCreatorApi;
+      lines.push("");
+      lines.push(`Extracted SDK API from pak (${api.className}):`);
+      if (!api.matchesKnownStub) {
+        lines.push("  NOTE: This differs from the known community stub — use these signatures.");
+      }
+      if (api.functions.length) {
+        lines.push("  Functions:");
+        for (const fn of api.functions) {
+          const ret = fn.returnType ?? "void";
+          const params = fn.params.map((p) => `${p.type} ${p.name}`).join(", ");
+          lines.push(`    ${ret} ${fn.name}(${params})`);
+        }
+      }
+      if (api.delegates.length) {
+        lines.push("  Delegates (Blueprint events):");
+        for (const del of api.delegates) {
+          const params = del.params.map((p) => `${p.type} ${p.name}`).join(", ");
+          lines.push(`    ${del.name}(${params})`);
+        }
+      }
+    }
   }
 
   return lines.join("\n");

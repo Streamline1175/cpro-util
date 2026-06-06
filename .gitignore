@@ -16,3 +16,8 @@ out/
 !examples/**/*
 .claude/
 .playwright-mcp/
+generated-skins/
+Koi.pak
+.github*
+.github/
+.github/copilot-instructions.md
